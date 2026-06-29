@@ -17,7 +17,7 @@ from app.models.company_settings import CompanySettings
 from app.models.invoice import Invoice, InvoiceLineItem
 from app.models.marketplace_document_template import MarketplaceDocumentTemplate
 from app.models.packing_list import PackingList, PackingListCarton
-from app.models.received_po import ReceivedPO, ReceivedPOLineItem
+from app.models.received_po import ReceivedPO, ReceivedPOAgentEvent, ReceivedPOLineItem
 from app.models.sticker_template import StickerTemplate
 from app.models.user import User
 from app.schemas.invoice import (
@@ -42,6 +42,8 @@ from app.schemas.received_po import (
     ReceivedPOBulkResolveRequest,
     ReceivedPOBulkResolveResponse,
     BarcodeJobResponse,
+    ReceivedPOAgentEventResponse,
+    ReceivedPOAgentTimelineResponse,
     ReceivedPOConfirmResponse,
     ReceivedPOExceptionResolveRequest,
     ReceivedPOExceptionsListResponse,
@@ -87,6 +89,13 @@ from app.services.marketplace_document_templates import (
     normalize_marketplace_key,
 )
 from app.services.packing_list_service import assign_cartons_for_received_po
+from app.services.received_po_agent import (
+    ACTOR_AGENT,
+    ACTOR_HUMAN,
+    STATUS_NEEDS_REVIEW,
+    STATUS_QUEUED,
+    log_received_po_agent_event,
+)
 from app.services.received_po_parser import process_received_po_parse_job
 from app.utils.amount_words import convert_to_words
 
@@ -113,6 +122,21 @@ def _json_loads(raw: str | None) -> dict[str, object]:
     except json.JSONDecodeError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _to_agent_event_response(event: ReceivedPOAgentEvent) -> ReceivedPOAgentEventResponse:
+    return ReceivedPOAgentEventResponse(
+        id=event.id,
+        received_po_id=event.received_po_id,
+        event_type=event.event_type,
+        title=event.title,
+        summary=event.summary,
+        status=event.status,  # type: ignore[arg-type]
+        actor_type=event.actor_type,  # type: ignore[arg-type]
+        tool_name=event.tool_name,
+        metadata=_json_loads(event.metadata_json),
+        created_at=event.created_at,
+    )
 
 
 def _to_invoice_response(record: Invoice) -> InvoiceResponse:
@@ -933,6 +957,16 @@ async def upload_received_po(
     )
     db.add(record)
     db.flush()
+    log_received_po_agent_event(
+        db,
+        record,
+        event_type='received_po.uploaded',
+        title='Received PO uploaded',
+        summary='The autopilot accepted the buyer PO file and prepared it for extraction.',
+        actor_type=ACTOR_HUMAN,
+        tool_name='received_po_upload',
+        metadata={'file_url': stored_url, 'content_type': content_type},
+    )
     log_audit(
         db,
         action='received_po.upload',
@@ -949,6 +983,15 @@ async def upload_received_po(
             payload={'received_po_id': record.id},
             created_by_user_id=current_user.id,
             input_ref=record.file_url,
+        )
+        log_received_po_agent_event(
+            db,
+            record,
+            event_type='agent.parse_queued',
+            title='Qwen extraction queued',
+            summary='The autopilot queued a parsing job to read the received PO and normalize line items.',
+            status=STATUS_QUEUED,
+            tool_name='received_po_parser',
         )
         db.commit()
     else:
@@ -1006,6 +1049,28 @@ def get_received_po(
 ) -> ReceivedPOResponse:
     record = _get_received_po_or_404(db, current_user.company_id, received_po_id)
     return _to_received_po_response(record)
+
+
+@router.get('/{received_po_id}/agent-events', response_model=ReceivedPOAgentTimelineResponse)
+def list_received_po_agent_events(
+    received_po_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ReceivedPOAgentTimelineResponse:
+    record = _get_received_po_or_404(db, current_user.company_id, received_po_id)
+    events = (
+        db.query(ReceivedPOAgentEvent)
+        .filter(
+            ReceivedPOAgentEvent.company_id == current_user.company_id,
+            ReceivedPOAgentEvent.received_po_id == record.id,
+        )
+        .order_by(ReceivedPOAgentEvent.created_at.asc())
+        .all()
+    )
+    return ReceivedPOAgentTimelineResponse(
+        received_po_id=record.id,
+        items=[_to_agent_event_response(event) for event in events],
+    )
 
 
 @router.patch('/{received_po_id}', response_model=ReceivedPOResponse)
@@ -1090,6 +1155,23 @@ def run_received_po_exceptions(
     if record.status == 'confirmed':
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Confirmed received POs cannot be edited.')
     run_exception_resolution_for_received_po(db, record)
+    log_received_po_agent_event(
+        db,
+        record,
+        event_type='agent.exceptions_evaluated',
+        title='Exceptions evaluated',
+        summary=(
+            f'The autopilot checked {len(record.items)} line item(s) and found '
+            f'{record.review_required_count} requiring human review.'
+        ),
+        status=STATUS_NEEDS_REVIEW if record.review_required_count > 0 else 'completed',
+        tool_name='exception_resolver',
+        metadata={
+            'line_item_count': len(record.items),
+            'review_required_count': record.review_required_count,
+            'auto_resolve_rate': float(record.auto_resolve_rate or 0),
+        },
+    )
     log_audit(
         db,
         action='received_po.exceptions.run',
@@ -1146,6 +1228,20 @@ def resolve_received_po_exception(
         line_item.confidence_score = 0.5
 
     run_exception_resolution_for_received_po(db, record)
+    log_received_po_agent_event(
+        db,
+        record,
+        event_type='human.exception_resolved',
+        title='Line item reviewed by human',
+        summary='A user reviewed an exception and either accepted or corrected the autopilot suggestion.',
+        actor_type=ACTOR_HUMAN,
+        tool_name='exception_review',
+        metadata={
+            'line_item_id': line_item.id,
+            'resolution_action': payload.action,
+            'review_required_count': record.review_required_count,
+        },
+    )
     log_audit(
         db,
         action='received_po.exceptions.resolve',
@@ -1195,6 +1291,21 @@ def resolve_received_po_exceptions_bulk(
         processed_count += 1
 
     run_exception_resolution_for_received_po(db, record)
+    log_received_po_agent_event(
+        db,
+        record,
+        event_type='human.exceptions_bulk_resolved',
+        title='Low-risk exceptions bulk reviewed',
+        summary=f'A user accepted {processed_count} low-risk autopilot suggestion(s).',
+        actor_type=ACTOR_HUMAN,
+        tool_name='exception_review',
+        metadata={
+            'processed_count': processed_count,
+            'min_confidence': payload.min_confidence,
+            'only_with_suggestions': payload.only_with_suggestions,
+            'review_required_count': record.review_required_count,
+        },
+    )
     log_audit(
         db,
         action='received_po.exceptions.resolve_bulk',
@@ -1228,6 +1339,16 @@ def confirm_received_po(
     if len(record.items) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Cannot confirm a received PO without line items.')
     record.status = 'confirmed'
+    log_received_po_agent_event(
+        db,
+        record,
+        event_type='human.po_confirmed',
+        title='Human checkpoint approved',
+        summary='A user confirmed the received PO, unlocking downstream barcode, invoice, and packing-list generation.',
+        actor_type=ACTOR_HUMAN,
+        tool_name='received_po_confirmation',
+        metadata={'line_item_count': len(record.items), 'review_required_count': record.review_required_count},
+    )
     log_audit(
         db,
         action='received_po.confirm',
@@ -1310,6 +1431,16 @@ def create_barcode_job(
         user_id=current_user.id,
         company_id=current_user.company_id,
         metadata={'received_po_id': record.id, 'barcode_job_id': job.id},
+    )
+    log_received_po_agent_event(
+        db,
+        record,
+        event_type='agent.barcode_queued',
+        title='Barcode generation queued',
+        summary='The autopilot queued barcode sticker generation from the confirmed PO lines.',
+        status=STATUS_QUEUED,
+        tool_name='barcode_pdf_generator',
+        metadata={'barcode_job_id': job.id, 'total_stickers': job.total_stickers},
     )
     enqueue_processing_job(
         db,
@@ -1410,6 +1541,15 @@ def create_invoice_draft(
             company_id=current_user.company_id,
             metadata={'received_po_id': record.id, 'invoice_id': existing.id},
         )
+        log_received_po_agent_event(
+            db,
+            record,
+            event_type='agent.invoice_refreshed',
+            title='Invoice draft refreshed',
+            summary='The autopilot refreshed the commercial invoice draft from the latest confirmed PO data.',
+            tool_name='invoice_builder',
+            metadata={'invoice_id': existing.id, 'invoice_number': existing.invoice_number},
+        )
         db.commit()
         db.refresh(existing)
         return _to_invoice_response(existing)
@@ -1490,6 +1630,20 @@ def create_invoice_draft(
             'number_of_cartons': payload.number_of_cartons,
             'export_mode': payload.export_mode,
             'details_overridden': payload.details is not None,
+        },
+    )
+    log_received_po_agent_event(
+        db,
+        record,
+        event_type='agent.invoice_drafted',
+        title='Invoice draft created',
+        summary='The autopilot drafted a commercial invoice using company settings, buyer template rules, and confirmed PO lines.',
+        tool_name='invoice_builder',
+        metadata={
+            'invoice_id': invoice.id,
+            'invoice_number': invoice.invoice_number,
+            'total_quantity': total_quantity,
+            'total_amount': float(total_amount),
         },
     )
     db.commit()
@@ -1580,6 +1734,16 @@ def generate_invoice_pdf_endpoint(
     _refresh_invoice_snapshot(db, invoice, received_po, company_settings, buyer_template=buyer_template)
     invoice.status = 'draft'
     invoice.file_url = None
+    log_received_po_agent_event(
+        db,
+        received_po,
+        event_type='agent.invoice_pdf_queued',
+        title='Invoice PDF generation queued',
+        summary='The autopilot queued the final invoice PDF after refreshing the invoice snapshot.',
+        status=STATUS_QUEUED,
+        tool_name='invoice_pdf_generator',
+        metadata={'invoice_id': invoice.id, 'invoice_number': invoice.invoice_number},
+    )
     enqueue_processing_job(
         db,
         company_id=current_user.company_id,
@@ -1638,6 +1802,19 @@ def create_packing_list(
         user_id=current_user.id,
         company_id=current_user.company_id,
         metadata={'received_po_id': record.id, 'packing_list_id': packing_list.id},
+    )
+    log_received_po_agent_event(
+        db,
+        record,
+        event_type='agent.packing_list_drafted',
+        title='Packing list drafted',
+        summary='The autopilot assigned PO quantities into cartons using configured carton-capacity rules.',
+        tool_name='packing_list_builder',
+        metadata={
+            'packing_list_id': packing_list.id,
+            'total_cartons': total_cartons,
+            'total_pieces': total_pieces,
+        },
     )
     db.commit()
     return PackingListCreateResponse(
@@ -1716,6 +1893,16 @@ def generate_packing_list_pdf_endpoint(
     _apply_packing_list_template_snapshot(packing_list, packing_template, distributor=record.distributor)
     packing_list.status = 'draft'
     packing_list.file_url = None
+    log_received_po_agent_event(
+        db,
+        record,
+        event_type='agent.packing_list_pdf_queued',
+        title='Packing-list PDF generation queued',
+        summary='The autopilot queued the final packing-list PDF from the carton breakdown.',
+        status=STATUS_QUEUED,
+        tool_name='packing_list_pdf_generator',
+        metadata={'packing_list_id': packing_list.id, 'template_id': packing_list.template_id},
+    )
     enqueue_processing_job(
         db,
         company_id=current_user.company_id,

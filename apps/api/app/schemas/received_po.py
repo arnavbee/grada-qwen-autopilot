@@ -8,6 +8,26 @@ from app.schemas.sticker_template import StickerTemplateKind
 ReceivedPOStatus = Literal['uploaded', 'parsing', 'parsed', 'confirmed', 'failed']
 BarcodeJobStatus = Literal['pending', 'generating', 'done', 'failed']
 ReceivedPOExceptionStatus = Literal['auto_resolved', 'needs_review', 'human_corrected']
+ReceivedPOAgentEventStatus = Literal['queued', 'running', 'needs_review', 'completed', 'failed']
+ReceivedPOAgentActorType = Literal['agent', 'human', 'system']
+
+
+class ReceivedPOAgentEventResponse(BaseModel):
+    id: str
+    received_po_id: str
+    event_type: str
+    title: str
+    summary: str | None = None
+    status: ReceivedPOAgentEventStatus
+    actor_type: ReceivedPOAgentActorType
+    tool_name: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class ReceivedPOAgentTimelineResponse(BaseModel):
+    received_po_id: str
+    items: list[ReceivedPOAgentEventResponse] = Field(default_factory=list)
 
 
 class ReceivedPOLineItemBase(BaseModel):

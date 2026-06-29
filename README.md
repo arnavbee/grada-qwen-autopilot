@@ -4,6 +4,23 @@ Grada helps wholesale teams move from scattered spreadsheets and manual follow-u
 
 From catalog to PO to final documents, Grada keeps your team faster, more accurate, and easier to scale.
 
+## Qwen Hackathon Submission
+
+**Track:** Autopilot Agent
+
+**Submission concept:** Grada Autopilot is a Qwen-powered wholesale operations agent that turns messy buyer POs into reviewed, compliant dispatch documents.
+
+The agent flow:
+
+1. Upload a marketplace PO in PDF, XLS, or XLSX format.
+2. Qwen-powered extraction and parser tools normalize PO header and line-item data.
+3. Exception tools flag risky rows and suggest fixes.
+4. A human reviewer accepts, edits, or rejects suggestions.
+5. Human confirmation unlocks generated barcode stickers, commercial invoice, and packing list PDFs.
+6. The Autopilot timeline shows agent actions, tool calls, status changes, and human checkpoints.
+
+Architecture diagram: [docs/qwen-hackathon-architecture.md](docs/qwen-hackathon-architecture.md)
+
 ## Why Teams Use Grada
 
 - Ship POs and documents faster with less back-and-forth
@@ -19,7 +36,7 @@ From catalog to PO to final documents, Grada keeps your team faster, more accura
 - Dispatch Documents: generate barcode labels, invoices, and packing lists
 - Ops Settings and Admin: keep rules, defaults, and visibility in one place
 
-Product walkthrough: [docs/current-product-features.md](/Users/arnavbsingh/Downloads/kira-web/docs/current-product-features.md)
+Product walkthrough: [docs/current-product-features.md](docs/current-product-features.md)
 
 ## Quick Start
 
@@ -54,7 +71,10 @@ NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 `apps/api/.env`
 
 ```bash
-OPENAI_API_KEY=your_key_here
+AI_PROVIDER=qwen
+QWEN_API_KEY=your_key_here
+QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+QWEN_MODEL=qwen-vl-max
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
 
@@ -136,4 +156,4 @@ pnpm test
 - API route groups are under `/api/v1`
 - API starts an in-process worker for parsing and PDF generation jobs
 - Local files are stored under `apps/api/static/` unless object storage is configured
-- API details: [apps/api/README.md](/Users/arnavbsingh/Downloads/kira-web/apps/api/README.md)
+- API details: [apps/api/README.md](apps/api/README.md)

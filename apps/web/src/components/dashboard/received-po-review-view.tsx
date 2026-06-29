@@ -1,19 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Bot, CheckCircle2, Clock3, FileWarning, RotateCw, UserCheck } from "lucide-react";
 
 import { DashboardShell } from "@/src/components/dashboard/dashboard-shell";
 import { LineItemsTable } from "@/src/components/received-po/LineItemsTable";
 import { Button } from "@/src/components/ui/button";
 import { Card } from "@/src/components/ui/card";
 import {
+  type ReceivedPOAgentEvent,
   type ReceivedPOExceptionsResponse,
   type ReceivedPO,
   type ReceivedPOHeaderInput,
   type ReceivedPOLineItemInput,
   confirmReceivedPO,
   getReceivedPO,
+  listReceivedPOAgentEvents,
   listReceivedPOExceptions,
   resolveReceivedPOException,
   resolveReceivedPOExceptionsBulk,
@@ -37,6 +40,169 @@ interface ExceptionEditDraft {
 
 type ExceptionFilter = "all" | "needs_review" | "low_risk" | "no_suggestion";
 
+function formatEventTime(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Just now";
+  }
+  return parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function getAgentEventTone(event: ReceivedPOAgentEvent): string {
+  if (event.status === "failed") {
+    return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-400/25 dark:bg-rose-400/10 dark:text-rose-200";
+  }
+  if (event.status === "needs_review") {
+    return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-300/25 dark:bg-amber-300/10 dark:text-amber-100";
+  }
+  if (event.status === "queued" || event.status === "running") {
+    return "border-kira-warmgray/35 bg-kira-warmgray/20 text-kira-darkgray dark:border-white/10 dark:bg-white/10 dark:text-gray-200";
+  }
+  if (event.actor_type === "human") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-300/25 dark:bg-emerald-300/10 dark:text-emerald-100";
+  }
+  return "border-kira-brown/20 bg-kira-brown/10 text-kira-darkgray dark:border-kira-brown/30 dark:bg-kira-brown/15 dark:text-kira-offwhite";
+}
+
+function AgentEventIcon({ event }: { event: ReceivedPOAgentEvent }): JSX.Element {
+  const className = "h-4 w-4";
+  if (event.status === "failed") {
+    return <FileWarning aria-hidden="true" className={className} />;
+  }
+  if (event.status === "queued" || event.status === "running") {
+    return <Clock3 aria-hidden="true" className={className} />;
+  }
+  if (event.actor_type === "human") {
+    return <UserCheck aria-hidden="true" className={className} />;
+  }
+  return <Bot aria-hidden="true" className={className} />;
+}
+
+interface AutopilotTimelineProps {
+  events: ReceivedPOAgentEvent[];
+  error: string | null;
+  loading: boolean;
+  onRetry: () => void;
+}
+
+function AutopilotTimeline({
+  events,
+  error,
+  loading,
+  onRetry,
+}: AutopilotTimelineProps): JSX.Element {
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-kira-warmgray/20 px-5 py-4 dark:border-white/10">
+        <div>
+          <p className="text-xs uppercase tracking-[0.16em] text-kira-midgray">
+            Autopilot timeline
+          </p>
+          <h2 className="mt-2 text-xl font-semibold text-kira-black dark:text-white">
+            Qwen agent run
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm text-kira-darkgray dark:text-gray-300">
+            Tracks extraction, tool calls, review gates, and generated outputs for this PO.
+          </p>
+        </div>
+        <Button
+          aria-label="Refresh autopilot timeline"
+          className="min-h-10 gap-2"
+          disabled={loading}
+          onClick={onRetry}
+          variant="secondary"
+        >
+          <RotateCw aria-hidden="true" className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+          Refresh
+        </Button>
+      </div>
+
+      <div className="px-5 py-4">
+        {loading ? (
+          <div className="space-y-3" aria-busy="true" aria-label="Loading autopilot timeline">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div
+                className="h-16 rounded-md border border-kira-warmgray/20 bg-kira-warmgray/15 dark:border-white/10 dark:bg-white/5"
+                key={index}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        {!loading && error ? (
+          <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-400/25 dark:bg-rose-400/10 dark:text-rose-100">
+            <p className="font-semibold">Could not load the agent timeline.</p>
+            <p className="mt-1">{error}</p>
+            <Button className="mt-3" onClick={onRetry} variant="secondary">
+              Try again
+            </Button>
+          </div>
+        ) : null}
+
+        {!loading && !error && events.length === 0 ? (
+          <div className="rounded-md border border-dashed border-kira-warmgray/35 p-5 text-sm text-kira-darkgray dark:border-white/15 dark:text-gray-300">
+            No agent events yet. Upload or reprocess a PO to start the autopilot trail.
+          </div>
+        ) : null}
+
+        {!loading && !error && events.length > 0 ? (
+          <ol className="space-y-3">
+            {events.map((event) => (
+              <li
+                className="grid gap-3 rounded-md border border-kira-warmgray/20 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5 sm:grid-cols-[minmax(0,1fr)_auto]"
+                key={event.id}
+              >
+                <div className="flex min-w-0 gap-3">
+                  <div
+                    className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${getAgentEventTone(
+                      event,
+                    )}`}
+                  >
+                    <AgentEventIcon event={event} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-kira-black dark:text-white">
+                        {event.title}
+                      </p>
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] ${getAgentEventTone(
+                          event,
+                        )}`}
+                      >
+                        {event.actor_type === "human" ? "Human" : "Agent"}
+                      </span>
+                    </div>
+                    {event.summary ? (
+                      <p className="mt-1 text-sm leading-6 text-kira-darkgray dark:text-gray-300">
+                        {event.summary}
+                      </p>
+                    ) : null}
+                    {event.tool_name ? (
+                      <p className="mt-1 text-xs text-kira-midgray">Tool: {event.tool_name}</p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="flex items-start justify-between gap-3 text-xs text-kira-midgray sm:block sm:text-right">
+                  <span>{formatEventTime(event.created_at)}</span>
+                  {event.status === "completed" ? (
+                    <CheckCircle2
+                      aria-label="Completed"
+                      className="mt-0.5 inline h-4 w-4 text-emerald-700 dark:text-emerald-300"
+                    />
+                  ) : (
+                    <span className="block capitalize">{event.status.replace("_", " ")}</span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        ) : null}
+      </div>
+    </Card>
+  );
+}
+
 function getKnittedWovenValue(item: ReceivedPOExceptionsResponse["items"][number]): string {
   const value = (item as { knitted_woven?: string | null; woven_knits?: string | null })
     .knitted_woven;
@@ -47,9 +213,12 @@ function getKnittedWovenValue(item: ReceivedPOExceptionsResponse["items"][number
 
 export function ReceivedPOReviewView({ receivedPoId }: ReceivedPOReviewViewProps): JSX.Element {
   const [record, setRecord] = useState<ReceivedPO | null>(null);
+  const [agentEvents, setAgentEvents] = useState<ReceivedPOAgentEvent[]>([]);
   const [headerDraft, setHeaderDraft] = useState<ReceivedPOHeaderInput>({});
   const [itemDrafts, setItemDrafts] = useState<ReceivedPOLineItemInput[]>([]);
   const [loading, setLoading] = useState(true);
+  const [agentEventsLoading, setAgentEventsLoading] = useState(true);
+  const [agentEventsError, setAgentEventsError] = useState<string | null>(null);
   const [exceptionsLoading, setExceptionsLoading] = useState(true);
   const [exceptionsRefreshing, setExceptionsRefreshing] = useState(false);
   const [bulkResolving, setBulkResolving] = useState(false);
@@ -68,6 +237,23 @@ export function ReceivedPOReviewView({ receivedPoId }: ReceivedPOReviewViewProps
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  const refreshAgentEvents = useCallback(async (): Promise<void> => {
+    try {
+      setAgentEventsLoading(true);
+      setAgentEventsError(null);
+      const response = await listReceivedPOAgentEvents(receivedPoId);
+      setAgentEvents(response.items);
+    } catch (timelineError) {
+      setAgentEventsError(
+        timelineError instanceof Error
+          ? timelineError.message
+          : "Failed to load autopilot timeline.",
+      );
+    } finally {
+      setAgentEventsLoading(false);
+    }
+  }, [receivedPoId]);
+
   useEffect(() => {
     let active = true;
     getReceivedPO(receivedPoId)
@@ -78,6 +264,29 @@ export function ReceivedPOReviewView({ receivedPoId }: ReceivedPOReviewViewProps
         setRecord(response);
         setHeaderDraft(toHeaderDraft(response));
         setItemDrafts(toEditableLineItems(response));
+        listReceivedPOAgentEvents(receivedPoId)
+          .then((timelineResponse) => {
+            if (!active) {
+              return;
+            }
+            setAgentEvents(timelineResponse.items);
+            setAgentEventsError(null);
+          })
+          .catch((timelineError) => {
+            if (!active) {
+              return;
+            }
+            setAgentEventsError(
+              timelineError instanceof Error
+                ? timelineError.message
+                : "Failed to load autopilot timeline.",
+            );
+          })
+          .finally(() => {
+            if (active) {
+              setAgentEventsLoading(false);
+            }
+          });
         listReceivedPOExceptions(receivedPoId)
           .then((exceptionsResponse) => {
             if (!active) {
@@ -102,6 +311,7 @@ export function ReceivedPOReviewView({ receivedPoId }: ReceivedPOReviewViewProps
           return;
         }
         setError(loadError instanceof Error ? loadError.message : "Failed to load received PO.");
+        setAgentEventsLoading(false);
       })
       .finally(() => {
         if (active) {
@@ -116,7 +326,7 @@ export function ReceivedPOReviewView({ receivedPoId }: ReceivedPOReviewViewProps
 
   const totalQuantity = useMemo(() => getTotalQuantity(itemDrafts), [itemDrafts]);
   const editable = record?.status !== "confirmed";
-  const exceptionItems = exceptionsState?.items ?? [];
+  const exceptionItems = useMemo(() => exceptionsState?.items ?? [], [exceptionsState?.items]);
   const confidenceBand = (confidence: number | null | undefined): "high" | "medium" | "low" => {
     const value = Number(confidence ?? 0);
     if (value >= 0.9) {
@@ -202,6 +412,7 @@ export function ReceivedPOReviewView({ receivedPoId }: ReceivedPOReviewViewProps
       const refreshed = await getReceivedPO(receivedPoId);
       setRecord(refreshed);
       setHeaderDraft(toHeaderDraft(refreshed));
+      await refreshAgentEvents();
       setMessage("Received PO confirmed. Fields are now locked.");
     } catch (confirmError) {
       setError(
@@ -218,6 +429,7 @@ export function ReceivedPOReviewView({ receivedPoId }: ReceivedPOReviewViewProps
       setError(null);
       const response = await runReceivedPOExceptions(receivedPoId);
       setExceptionsState(response);
+      await refreshAgentEvents();
       setMessage("Exception scan completed.");
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : "Failed to run exception scan.");
@@ -262,6 +474,7 @@ export function ReceivedPOReviewView({ receivedPoId }: ReceivedPOReviewViewProps
       const refreshed = await getReceivedPO(receivedPoId);
       setRecord(refreshed);
       setItemDrafts(toEditableLineItems(refreshed));
+      await refreshAgentEvents();
       setMessage(action === "accept" ? "Suggested fix accepted." : "Suggestion rejected.");
     } catch (resolveError) {
       setError(
@@ -289,6 +502,7 @@ export function ReceivedPOReviewView({ receivedPoId }: ReceivedPOReviewViewProps
       const refreshed = await getReceivedPO(receivedPoId);
       setRecord(refreshed);
       setItemDrafts(toEditableLineItems(refreshed));
+      await refreshAgentEvents();
       setMessage(`Approved ${response.processed_count} low-risk exception(s).`);
     } catch (bulkError) {
       setError(
@@ -526,6 +740,15 @@ export function ReceivedPOReviewView({ receivedPoId }: ReceivedPOReviewViewProps
                 </label>
               </div>
             </Card>
+
+            <AutopilotTimeline
+              error={agentEventsError}
+              events={agentEvents}
+              loading={agentEventsLoading}
+              onRetry={() => {
+                void refreshAgentEvents();
+              }}
+            />
 
             <Card className="p-5">
               <div className="flex flex-wrap items-start justify-between gap-4">

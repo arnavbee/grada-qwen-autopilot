@@ -8,7 +8,16 @@ class Settings(BaseSettings):
 
     app_env: str = 'development'
     database_url: str = 'sqlite:///./kira.db'
-    OPENAI_API_KEY: str
+    ai_provider: str = 'openai'
+    ai_base_url: str | None = None
+    ai_model: str | None = None
+
+    OPENAI_API_KEY: str = ''
+    OPENAI_MODEL: str = 'gpt-4o'
+
+    QWEN_API_KEY: str | None = None
+    QWEN_BASE_URL: str = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
+    QWEN_MODEL: str = 'qwen-vl-max'
 
     jwt_secret_key: str = 'change-me'
     jwt_refresh_secret_key: str = 'change-me-too'

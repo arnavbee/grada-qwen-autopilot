@@ -114,6 +114,10 @@ def test_received_po_upload_list_get_edit_confirm_and_barcode_job() -> None:
     assert upload.status_code == 201
     received_po_id = upload.json()['received_po_id']
 
+    timeline = client.get(f'/api/v1/received-pos/{received_po_id}/agent-events', headers=headers)
+    assert timeline.status_code == 200
+    assert any(item['event_type'] == 'received_po.uploaded' for item in timeline.json()['items'])
+
     list_response = client.get('/api/v1/received-pos', headers=headers)
     assert list_response.status_code == 200
     assert list_response.json()['total'] >= 1
@@ -197,6 +201,10 @@ def test_received_po_upload_list_get_edit_confirm_and_barcode_job() -> None:
     assert confirm.status_code == 200
     assert confirm.json()['status'] == 'confirmed'
 
+    timeline_after_confirm = client.get(f'/api/v1/received-pos/{received_po_id}/agent-events', headers=headers)
+    assert timeline_after_confirm.status_code == 200
+    assert any(item['event_type'] == 'human.po_confirmed' for item in timeline_after_confirm.json()['items'])
+
     edit_after_confirm = client.patch(
         f'/api/v1/received-pos/{received_po_id}',
         headers=headers,
@@ -207,6 +215,10 @@ def test_received_po_upload_list_get_edit_confirm_and_barcode_job() -> None:
     barcode_job = client.post(f'/api/v1/received-pos/{received_po_id}/barcode', headers=headers)
     assert barcode_job.status_code == 201
     job_id = barcode_job.json()['job_id']
+
+    timeline_after_barcode = client.get(f'/api/v1/received-pos/{received_po_id}/agent-events', headers=headers)
+    assert timeline_after_barcode.status_code == 200
+    assert any(item['event_type'] == 'agent.barcode_queued' for item in timeline_after_barcode.json()['items'])
 
     barcode_status = client.get(f'/api/v1/received-pos/{received_po_id}/barcode/status', headers=headers)
     assert barcode_status.status_code == 200
@@ -284,6 +296,12 @@ def test_received_po_upload_parses_excel_into_line_items() -> None:
     assert len(final_payload['items']) == 2
     assert final_payload['items'][0]['brand_style_code'] == 'HRDS25001'
     assert final_payload['items'][0]['sku_id'] == 'HRDS25001-A-BLACK-S'
+
+    timeline = client.get(f'/api/v1/received-pos/{received_po_id}/agent-events', headers=headers)
+    assert timeline.status_code == 200
+    event_types = {item['event_type'] for item in timeline.json()['items']}
+    assert 'agent.parse_started' in event_types
+    assert 'agent.parse_completed' in event_types
 
 
 def test_received_po_upload_parses_vendor_export_format() -> None:

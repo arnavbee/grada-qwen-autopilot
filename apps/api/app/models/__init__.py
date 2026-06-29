@@ -17,7 +17,7 @@ from app.models.processing_job import ProcessingJob
 from app.models.product import Product
 from app.models.product_image import ProductImage
 from app.models.product_measurement import ProductMeasurement
-from app.models.received_po import ReceivedPO, ReceivedPOLineItem
+from app.models.received_po import ReceivedPO, ReceivedPOAgentEvent, ReceivedPOLineItem
 from app.models.sticker_template import StickerElement, StickerTemplate
 from app.models.user import User
 
@@ -47,6 +47,7 @@ __all__ = [
     'ProductImage',
     'ProductMeasurement',
     'ReceivedPO',
+    'ReceivedPOAgentEvent',
     'ReceivedPOLineItem',
     'StickerElement',
     'StickerTemplate',

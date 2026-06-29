@@ -38,6 +38,7 @@ from app.models.received_po import ReceivedPO, ReceivedPOLineItem
 from app.models.sticker_template import StickerElement, StickerTemplate
 from app.services.buyer_document_templates import DEFAULT_INVOICE_LAYOUT_KEY, LANDMARK_INVOICE_LAYOUT_KEY
 from app.services.object_storage import get_object_storage_service
+from app.services.received_po_agent import STATUS_FAILED, log_received_po_agent_event
 from app.utils.amount_words import convert_to_words
 
 object_storage = get_object_storage_service()
@@ -2305,10 +2306,35 @@ def generate_barcode_job_pdf(barcode_job_id: str) -> None:
         job.status = 'done'
         job.total_stickers = result.total_stickers
         job.total_pages = result.total_pages
+        log_received_po_agent_event(
+            db,
+            received_po,
+            event_type='agent.barcode_completed',
+            title='Barcode PDF generated',
+            summary='The autopilot generated barcode stickers from the confirmed PO.',
+            tool_name='barcode_pdf_generator',
+            metadata={
+                'barcode_job_id': job.id,
+                'file_url': job.file_url,
+                'total_stickers': job.total_stickers,
+                'total_pages': job.total_pages,
+            },
+        )
         db.commit()
     except Exception:
         if 'job' in locals() and job is not None:
             job.status = 'failed'
+            if 'received_po' in locals() and received_po is not None:
+                log_received_po_agent_event(
+                    db,
+                    received_po,
+                    event_type='agent.barcode_failed',
+                    title='Barcode PDF generation failed',
+                    summary='The autopilot could not generate barcode stickers.',
+                    status=STATUS_FAILED,
+                    tool_name='barcode_pdf_generator',
+                    metadata={'barcode_job_id': job.id},
+                )
             db.commit()
         raise
     finally:
@@ -2337,11 +2363,35 @@ def generate_invoice_pdf(invoice_id: str) -> None:
         key = f'invoices/{invoice.company_id}/{invoice.id}.pdf'
         invoice.file_url = _write_generated_pdf(key=key, content=pdf_content)
         invoice.status = 'final'
+        log_received_po_agent_event(
+            db,
+            received_po,
+            event_type='agent.invoice_pdf_completed',
+            title='Invoice PDF generated',
+            summary='The autopilot generated the final commercial invoice PDF.',
+            tool_name='invoice_pdf_generator',
+            metadata={
+                'invoice_id': invoice.id,
+                'invoice_number': invoice.invoice_number,
+                'file_url': invoice.file_url,
+            },
+        )
         db.commit()
     except Exception:
         if 'invoice' in locals() and invoice is not None:
             invoice.status = 'failed'
             invoice.file_url = None
+            if 'received_po' in locals() and received_po is not None:
+                log_received_po_agent_event(
+                    db,
+                    received_po,
+                    event_type='agent.invoice_pdf_failed',
+                    title='Invoice PDF generation failed',
+                    summary='The autopilot could not generate the commercial invoice PDF.',
+                    status=STATUS_FAILED,
+                    tool_name='invoice_pdf_generator',
+                    metadata={'invoice_id': invoice.id},
+                )
             db.commit()
         raise
     finally:
@@ -2417,11 +2467,31 @@ def generate_packing_list_pdf(packing_list_id: str) -> None:
         key = f'packing-lists/{packing_list.company_id}/{packing_list.id}.pdf'
         packing_list.file_url = _write_generated_pdf(key=key, content=pdf_content)
         packing_list.status = 'final'
+        log_received_po_agent_event(
+            db,
+            received_po,
+            event_type='agent.packing_list_pdf_completed',
+            title='Packing-list PDF generated',
+            summary='The autopilot generated the final packing-list PDF.',
+            tool_name='packing_list_pdf_generator',
+            metadata={'packing_list_id': packing_list.id, 'file_url': packing_list.file_url},
+        )
         db.commit()
     except Exception:
         if 'packing_list' in locals() and packing_list is not None:
             packing_list.status = 'failed'
             packing_list.file_url = None
+            if 'received_po' in locals() and received_po is not None:
+                log_received_po_agent_event(
+                    db,
+                    received_po,
+                    event_type='agent.packing_list_pdf_failed',
+                    title='Packing-list PDF generation failed',
+                    summary='The autopilot could not generate the packing-list PDF.',
+                    status=STATUS_FAILED,
+                    tool_name='packing_list_pdf_generator',
+                    metadata={'packing_list_id': packing_list.id},
+                )
             db.commit()
         raise
     finally:

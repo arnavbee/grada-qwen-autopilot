@@ -38,7 +38,10 @@ cp .env.example .env
 Most important settings:
 
 ```bash
-OPENAI_API_KEY=...
+AI_PROVIDER=qwen
+QWEN_API_KEY=...
+QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+QWEN_MODEL=qwen-vl-max
 DATABASE_URL=sqlite:///./kira.db
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 JWT_SECRET_KEY=change-me
@@ -47,7 +50,9 @@ JWT_REFRESH_SECRET_KEY=change-me-too
 
 Notes:
 
-- `OPENAI_API_KEY` is required by the current settings model.
+- `AI_PROVIDER=qwen` routes image analysis and PO attribute extraction through Qwen Cloud's OpenAI-compatible API.
+- `AI_MODEL` can override the provider-specific model for one-off experiments.
+- `OPENAI_API_KEY` and `OPENAI_MODEL` remain available for local fallback runs.
 - SQLite is the simplest local path; Postgres is supported and is the intended production target.
 - The API reads `.env` from `apps/api/`.
 

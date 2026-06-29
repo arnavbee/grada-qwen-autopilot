@@ -22,6 +22,7 @@ const {
   pushMock,
   uploadReceivedPOMock,
   getReceivedPOMock,
+  listReceivedPOAgentEventsMock,
   confirmReceivedPOMock,
   listReceivedPOExceptionsMock,
   runReceivedPOExceptionsMock,
@@ -60,6 +61,7 @@ const {
   pushMock: vi.fn(),
   uploadReceivedPOMock: vi.fn(),
   getReceivedPOMock: vi.fn(),
+  listReceivedPOAgentEventsMock: vi.fn(),
   confirmReceivedPOMock: vi.fn(),
   listReceivedPOExceptionsMock: vi.fn(),
   runReceivedPOExceptionsMock: vi.fn(),
@@ -136,6 +138,7 @@ vi.mock("@/src/lib/received-po", async () => {
     ...actual,
     uploadReceivedPO: uploadReceivedPOMock,
     getReceivedPO: getReceivedPOMock,
+    listReceivedPOAgentEvents: listReceivedPOAgentEventsMock,
     confirmReceivedPO: confirmReceivedPOMock,
     listReceivedPOExceptions: listReceivedPOExceptionsMock,
     runReceivedPOExceptions: runReceivedPOExceptionsMock,
@@ -457,8 +460,7 @@ function buildPackingList(
 }
 
 async function openDocumentsTab(name: "Invoice" | "Packing List"): Promise<void> {
-  const tabLabel = screen.getByText(name);
-  const tabButton = tabLabel.closest("button");
+  const tabButton = screen.getByRole("button", { name: new RegExp(name, "i") });
   expect(tabButton).not.toBeNull();
   fireEvent.click(tabButton as HTMLElement);
 }
@@ -468,6 +470,24 @@ describe("received PO dashboard flows", () => {
     pushMock.mockReset();
     uploadReceivedPOMock.mockReset();
     getReceivedPOMock.mockReset();
+    listReceivedPOAgentEventsMock.mockReset();
+    listReceivedPOAgentEventsMock.mockResolvedValue({
+      received_po_id: "po_1",
+      items: [
+        {
+          id: "event_1",
+          received_po_id: "po_1",
+          event_type: "agent.parse_completed",
+          title: "PO extracted and normalized",
+          summary: "The autopilot extracted 1 line item and found 1 requiring review.",
+          status: "needs_review",
+          actor_type: "agent",
+          tool_name: "received_po_parser",
+          metadata: {},
+          created_at: "2026-03-24T00:00:00+00:00",
+        },
+      ],
+    });
     confirmReceivedPOMock.mockReset();
     listReceivedPOExceptionsMock.mockReset();
     listReceivedPOExceptionsMock.mockResolvedValue(buildReceivedPOExceptions());
@@ -1081,7 +1101,7 @@ describe("received PO dashboard flows", () => {
     render(<ReceivedPODocumentsView receivedPoId="po_1" />);
 
     await act(async () => {});
-    await userEvent.setup().click(screen.getByRole("button", { name: "Save template" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Import / Create Template" }));
 
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
     expect(fileInput).not.toBeNull();
@@ -1133,7 +1153,7 @@ describe("received PO dashboard flows", () => {
     expect(generateInvoicePdfMock).toHaveBeenCalledWith("po_1");
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(6000);
     });
 
     expect(screen.getByText("Invoice PDF generation failed. Please try again.")).toBeTruthy();
@@ -1176,7 +1196,7 @@ describe("received PO dashboard flows", () => {
     expect(generatePackingListPdfMock).toHaveBeenCalledWith("po_1", { template_id: null });
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(6000);
     });
 
     expect(screen.getByText("Packing list PDF generation failed. Please try again.")).toBeTruthy();
@@ -1308,7 +1328,7 @@ describe("received PO dashboard flows", () => {
     await act(async () => {});
     await openDocumentsTab("Packing List");
 
-    fireEvent.click(screen.getByRole("button", { name: "Save template" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import / Create Template" }));
     fireEvent.click(screen.getByRole("button", { name: "Create packing template" }));
 
     await waitFor(() =>

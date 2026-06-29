@@ -52,15 +52,46 @@ ANALYSIS_FIELD_LABELS = {
     'woven_knits': 'Woven/Knits',
 }
 
+
+def _normalize_provider_name(provider: str | None) -> str:
+    normalized = str(provider or '').strip().lower()
+    return normalized or 'openai'
+
+
+def _resolve_ai_client_config() -> dict[str, str | None]:
+    provider = _normalize_provider_name(settings.ai_provider)
+    override_base_url = settings.ai_base_url.strip() if settings.ai_base_url else None
+    override_model = settings.ai_model.strip() if settings.ai_model else None
+
+    if provider == 'qwen':
+        api_key = settings.QWEN_API_KEY or settings.OPENAI_API_KEY
+        return {
+            'provider': provider,
+            'api_key': api_key,
+            'base_url': override_base_url or settings.QWEN_BASE_URL,
+            'model': override_model or settings.QWEN_MODEL,
+        }
+
+    base_url = override_base_url
+    if not base_url and settings.OPENAI_API_KEY.startswith('sk-or-v1'):
+        base_url = 'https://openrouter.ai/api/v1'
+
+    return {
+        'provider': provider,
+        'api_key': settings.OPENAI_API_KEY,
+        'base_url': base_url,
+        'model': override_model or settings.OPENAI_MODEL,
+    }
+
+
 class AIService:
     def __init__(self):
-        base_url = None
-        if settings.OPENAI_API_KEY.startswith("sk-or-v1"):
-            base_url = "https://openrouter.ai/api/v1"
-            
+        client_config = _resolve_ai_client_config()
+        self.provider = str(client_config['provider'])
+        self.model = str(client_config['model'])
         self.client = OpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            base_url=base_url
+            api_key=client_config['api_key'] or 'missing-api-key',
+            base_url=client_config['base_url'],
         )
 
     @staticmethod
@@ -282,7 +313,7 @@ Format strictly as:
             has_more_attempts = attempt_config != attempt_configs[-1]
             try:
                 response = self.client.chat.completions.create(
-                    model="gpt-4o",
+                    model=self.model,
                     messages=[
                         {
                             "role": "user",
@@ -347,7 +378,7 @@ Format strictly as:
             )
             try:
                 response = self.client.chat.completions.create(
-                    model="gpt-4o",
+                    model=self.model,
                     messages=request_messages,
                     max_tokens=attempt_config['max_tokens'],
                     response_format={"type": "json_object"}

@@ -10,6 +10,31 @@ export type InvoiceStatus = "draft" | "final" | "failed";
 export type PackingListStatus = "draft" | "final" | "failed";
 export type ExportMode = "Air" | "Sea" | "Road";
 export type InvoiceTaxMode = "interstate" | "intrastate";
+export type ReceivedPOAgentEventStatus =
+  | "queued"
+  | "running"
+  | "needs_review"
+  | "completed"
+  | "failed";
+export type ReceivedPOAgentActorType = "agent" | "human" | "system";
+
+export interface ReceivedPOAgentEvent {
+  id: string;
+  received_po_id: string;
+  event_type: string;
+  title: string;
+  summary: string | null;
+  status: ReceivedPOAgentEventStatus;
+  actor_type: ReceivedPOAgentActorType;
+  tool_name: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ReceivedPOAgentTimelineResponse {
+  received_po_id: string;
+  items: ReceivedPOAgentEvent[];
+}
 
 export interface InvoiceDetails {
   marketplace_name: string;
@@ -291,6 +316,12 @@ export async function uploadReceivedPO(file: File): Promise<ReceivedPOUploadResp
 
 export async function getReceivedPO(receivedPoId: string): Promise<ReceivedPO> {
   return apiRequest<ReceivedPO>(`/received-pos/${receivedPoId}`);
+}
+
+export async function listReceivedPOAgentEvents(
+  receivedPoId: string,
+): Promise<ReceivedPOAgentTimelineResponse> {
+  return apiRequest<ReceivedPOAgentTimelineResponse>(`/received-pos/${receivedPoId}/agent-events`);
 }
 
 export async function updateReceivedPOHeader(

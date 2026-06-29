@@ -16,6 +16,12 @@ from app.db.session import SessionLocal
 from app.models.received_po import ReceivedPO, ReceivedPOLineItem
 from app.services.exception_resolver import run_exception_resolution_for_received_po
 from app.services.object_storage import get_object_storage_service
+from app.services.received_po_agent import (
+    STATUS_FAILED,
+    STATUS_NEEDS_REVIEW,
+    STATUS_RUNNING,
+    log_received_po_agent_event,
+)
 
 SIZE_ORDER = {'XS': 0, 'S': 1, 'M': 2, 'L': 3, 'XL': 4, 'XXL': 5, 'XXXL': 6}
 LINE_ITEM_FIELD_ALIASES = {
@@ -345,6 +351,15 @@ def process_received_po_parse_job(received_po_id: str) -> None:
             return
 
         record.status = 'parsing'
+        log_received_po_agent_event(
+            db,
+            record,
+            event_type='agent.parse_started',
+            title='Qwen extraction started',
+            summary='The autopilot started reading the uploaded buyer PO and normalizing marketplace rows.',
+            status=STATUS_RUNNING,
+            tool_name='received_po_parser',
+        )
         db.commit()
 
         parsed_payload = parse_received_po_file(record.file_url)
@@ -356,6 +371,16 @@ def process_received_po_parse_job(received_po_id: str) -> None:
                     **parsed_payload,
                     'parse_error': 'No line items could be extracted from the received PO.',
                 }
+            )
+            log_received_po_agent_event(
+                db,
+                record,
+                event_type='agent.parse_failed',
+                title='Extraction failed',
+                summary='The autopilot could not find usable line items in the received PO.',
+                status=STATUS_FAILED,
+                tool_name='received_po_parser',
+                metadata={'parse_error': 'No line items could be extracted from the received PO.'},
             )
             db.commit()
             return
@@ -400,11 +425,41 @@ def process_received_po_parse_job(received_po_id: str) -> None:
         record.raw_extracted_json = _json_dumps(parsed_payload)
         record.updated_at = utcnow()
         record.status = 'parsed'
+        log_received_po_agent_event(
+            db,
+            record,
+            event_type='agent.parse_completed',
+            title='PO extracted and normalized',
+            summary=(
+                f'The autopilot extracted {len(record.items)} line item(s), '
+                f'auto-resolved {float(record.auto_resolve_rate or 0):.0f}% of checks, '
+                f'and flagged {record.review_required_count} for review.'
+            ),
+            status=STATUS_NEEDS_REVIEW if record.review_required_count > 0 else 'completed',
+            tool_name='received_po_parser',
+            metadata={
+                'line_item_count': len(record.items),
+                'po_number': record.po_number,
+                'distributor': record.distributor,
+                'auto_resolve_rate': float(record.auto_resolve_rate or 0),
+                'review_required_count': record.review_required_count,
+            },
+        )
         db.commit()
     except Exception as exc:
         if record is not None:
             record.status = 'failed'
             record.raw_extracted_json = _json_dumps({'parse_error': str(exc)[:500]})
+            log_received_po_agent_event(
+                db,
+                record,
+                event_type='agent.parse_failed',
+                title='Extraction failed',
+                summary='The autopilot hit an error while parsing the received PO.',
+                status=STATUS_FAILED,
+                tool_name='received_po_parser',
+                metadata={'parse_error': str(exc)[:500]},
+            )
             db.commit()
     finally:
         db.close()
