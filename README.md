@@ -4,24 +4,60 @@ Grada helps wholesale teams move from scattered spreadsheets and manual follow-u
 
 From catalog to PO to final documents, Grada keeps your team faster, more accurate, and easier to scale.
 
-## Qwen Hackathon Submission
+## Qwen Cloud Hackathon Submission (Devpost Checklist)
 
-**Track:** Autopilot Agent
+**Track:** Track 4: Autopilot Agent  
+**Open Source License:** [MIT License](LICENSE) (Visible at top of repository page)
 
-**Submission concept:** Grada Autopilot is a Qwen-powered wholesale operations agent that turns messy buyer POs into reviewed, compliant dispatch documents.
+### 🔗 Required Judging Links & Proofs
 
-The agent flow:
+1. **Alibaba Cloud & Qwen API Proof (Code File):**
+   - [`apps/api/app/services/ai.py`](apps/api/app/services/ai.py) — Demonstrates direct API integration with Alibaba Cloud DashScope (`dashscope-intl.aliyuncs.com`) using `qwen-vl-max`.
+   - [`apps/api/app/services/received_po_reasoning.py`](apps/api/app/services/received_po_reasoning.py) — Demonstrates Qwen-powered structured risk reasoning over parsed PO rows.
+2. **System Architecture Diagram:**
+   - Detailed Documentation: [`docs/qwen-hackathon-architecture.md`](docs/qwen-hackathon-architecture.md)
+   - Comprehensive Hackathon Guide: [`HACKATHON.md`](HACKATHON.md)
+3. **Video Recordings (To Be Added by Team on Devpost):**
+   - **3-Minute Functional Demo Video:** Demonstrating upload, Qwen vision extraction, Autopilot timeline, human-in-the-loop exception resolution, and 1-click dispatch document generation.
+   - **Alibaba Cloud Deployment Proof Recording:** A separate short recording proving the FastAPI backend server running on Alibaba Cloud infrastructure.
 
-1. Upload a marketplace PO in PDF, XLS, or XLSX format.
-2. Qwen-powered extraction and parser tools normalize PO header and line-item data.
-3. Qwen risk reasoning classifies the PO, explains critical checks, and proposes the next action.
-4. Exception tools flag risky rows and suggest fixes.
-5. A human reviewer accepts, edits, or rejects suggestions.
-6. Human confirmation unlocks generated barcode stickers, commercial invoice, and packing list PDFs.
-7. The Autopilot timeline shows agent actions, tool calls, status changes, and human checkpoints.
+### 🏛️ System Architecture Diagram
 
-Architecture diagram: [docs/qwen-hackathon-architecture.md](docs/qwen-hackathon-architecture.md)
-Hackathon judging guide: [HACKATHON.md](HACKATHON.md)
+```mermaid
+flowchart LR
+  user["Wholesale operator"] --> web["Next.js dashboard"]
+  web --> api["FastAPI backend on Alibaba Cloud"]
+
+  api --> qwen["Qwen Cloud model API\nOpenAI-compatible endpoint"]
+  api --> db["Postgres or SQLite\nTenant data, agent events, documents"]
+  api --> storage["Object storage\nUploaded POs and generated PDFs"]
+  api --> worker["Durable job worker"]
+
+  worker --> parser["PO parser tool\nPDF/XLS/XLSX extraction"]
+  worker --> qwenReasoner["Qwen PO risk reasoner\ncritical checks + next action"]
+  worker --> resolver["Exception resolver tool\nconfidence + suggested fixes"]
+  worker --> docs["Document tools\nbarcode, invoice, packing list"]
+
+  parser --> db
+  qwenReasoner --> qwen
+  qwenReasoner --> db
+  resolver --> db
+  docs --> storage
+  docs --> db
+
+  db --> timeline["Autopilot timeline\nagent actions + human checkpoints"]
+  timeline --> web
+```
+
+### 🤖 Autopilot Workflow Overview
+
+Grada Autopilot is a production-shaped wholesale operations agent that automates the intake of unstructured purchase orders into compliant commercial dispatch documents:
+
+1. **Multimodal Ingest:** Upload buyer POs in PDF, XLS, or XLSX format.
+2. **Extraction & Normalization:** Qwen vision models and domain parsers extract item SKUs, sizes, colors, and pricing.
+3. **Autonomous Risk Reasoning:** Qwen classifies PO risk, evaluates deterministic critical checks, and outlines next actions.
+4. **Human-in-the-Loop Verification:** Operators verify flagged discrepancies with bi-directional spreadsheet cell tracing before confirming.
+5. **Document Synthesis:** Confirmed POs automatically trigger generated barcode stickers, commercial invoices, and packing lists.
 
 ## Why Teams Use Grada
 
