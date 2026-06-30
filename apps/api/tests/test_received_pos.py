@@ -296,11 +296,18 @@ def test_received_po_upload_parses_excel_into_line_items() -> None:
     assert len(final_payload['items']) == 2
     assert final_payload['items'][0]['brand_style_code'] == 'HRDS25001'
     assert final_payload['items'][0]['sku_id'] == 'HRDS25001-A-BLACK-S'
+    assert final_payload['raw_extracted']['qwen_reasoning']['source'] in {
+        'local_rule_fallback',
+        'qwen_cloud',
+        'qwen_error_fallback',
+    }
+    assert final_payload['raw_extracted']['qwen_reasoning']['decision'] in {'auto_continue', 'needs_human_review'}
 
     timeline = client.get(f'/api/v1/received-pos/{received_po_id}/agent-events', headers=headers)
     assert timeline.status_code == 200
     event_types = {item['event_type'] for item in timeline.json()['items']}
     assert 'agent.parse_started' in event_types
+    assert 'agent.qwen_reasoning_completed' in event_types
     assert 'agent.parse_completed' in event_types
 
 

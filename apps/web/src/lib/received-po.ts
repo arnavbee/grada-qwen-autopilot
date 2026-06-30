@@ -284,6 +284,8 @@ export interface ReceivedPOLineItemInput {
   size: string | null;
   quantity: number;
   po_price: number | null;
+  resolution_status?: string;
+  exception_reason?: string | null;
 }
 
 export interface PackingListCartonInput {

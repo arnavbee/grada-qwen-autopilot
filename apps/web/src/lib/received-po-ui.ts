@@ -47,6 +47,8 @@ export function toEditableLineItems(record: ReceivedPO | null): ReceivedPOLineIt
     size: item.size,
     quantity: item.quantity,
     po_price: item.po_price,
+    resolution_status: item.resolution_status,
+    exception_reason: item.exception_reason,
   }));
 }
 

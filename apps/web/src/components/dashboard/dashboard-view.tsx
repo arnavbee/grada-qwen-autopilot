@@ -26,26 +26,11 @@ interface DashboardStats {
   brandProfileCompletion: number;
 }
 
-interface ActionCard {
-  title: string;
-  detail: string;
-  href: string;
-  badge: string;
-  variant?: "primary" | "secondary";
-}
-
-interface ModuleCard {
-  title: string;
-  detail: string;
-  href: string;
-  metrics: string[];
-  cta: string;
-}
-
 interface AttentionItem {
   title: string;
   detail: string;
   href: string;
+  badge: string;
 }
 
 const EMPTY_STATS: DashboardStats = {
@@ -80,40 +65,17 @@ async function fetchTotal(path: string): Promise<number> {
   return response.total ?? 0;
 }
 
-function QuickActionCard({
-  title,
-  detail,
-  href,
-  badge,
-  variant = "secondary",
-}: ActionCard): JSX.Element {
-  return (
-    <Card className="flex h-full flex-col justify-between rounded-[28px] border border-kira-warmgray/50 p-5">
-      <div>
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <p className="text-xs uppercase tracking-[0.18em] text-kira-midgray">{badge}</p>
-        </div>
-        <h2 className="text-xl font-semibold text-kira-black">{title}</h2>
-        <p className="mt-2 text-sm leading-6 text-kira-darkgray">{detail}</p>
-      </div>
-      <Link className="mt-6 inline-block" href={href}>
-        <Button className="px-5" variant={variant}>
-          Open
-        </Button>
-      </Link>
-    </Card>
-  );
-}
-
 export function DashboardView(): JSX.Element {
   const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let active = true;
+    let mounted = true;
 
-    async function load(): Promise<void> {
+    async function loadDashboard(): Promise<void> {
+      setLoading(true);
+      setError(null);
       try {
         const [
           catalogReady,
@@ -124,8 +86,8 @@ export function DashboardView(): JSX.Element {
           receivedUploaded,
           receivedParsed,
           receivedConfirmed,
-          brandProfile,
           cartonRules,
+          brandProfile,
         ] = await Promise.all([
           fetchTotal("/catalog/products?status=ready&limit=1"),
           fetchTotal("/catalog/products?status=needs_review&limit=1"),
@@ -135,11 +97,11 @@ export function DashboardView(): JSX.Element {
           fetchTotal("/received-pos?status=uploaded&limit=1"),
           fetchTotal("/received-pos?status=parsed&limit=1"),
           fetchTotal("/received-pos?status=confirmed&limit=1"),
+          listCartonRules().then((rules) => rules.length),
           getBrandProfile(),
-          listCartonRules(),
         ]);
 
-        if (!active) {
+        if (!mounted) {
           return;
         }
 
@@ -152,175 +114,54 @@ export function DashboardView(): JSX.Element {
           receivedUploaded,
           receivedParsed,
           receivedConfirmed,
-          cartonRules: cartonRules.length,
+          cartonRules,
           brandProfileCompletion: getCompletionPercent(brandProfile),
         });
       } catch (loadError) {
-        if (!active) {
+        if (!mounted) {
           return;
         }
-        setError(loadError instanceof Error ? loadError.message : "Failed to load dashboard.");
+        setError(
+          loadError instanceof Error ? loadError.message : "Failed to load dashboard metrics.",
+        );
       } finally {
-        if (active) {
+        if (mounted) {
           setLoading(false);
         }
       }
     }
 
-    void load();
+    void loadDashboard();
+
     return () => {
-      active = false;
+      mounted = false;
     };
   }, []);
 
-  const quickActions = useMemo<ActionCard[]>(() => {
-    return [
-      {
-        title: "Start Catalog Setup",
-        detail:
-          stats.catalogReady > 0 || stats.catalogNeedsReview > 0
-            ? `${stats.catalogReady} ready style${stats.catalogReady === 1 ? "" : "s"} in catalog. Add or review items before PO building.`
-            : "Add items in catalog first so PO Builder has approved styles to work from.",
-        href: "/dashboard/catalog",
-        badge: "Start here",
-        variant: "primary",
-      },
-      {
-        title: "Continue PO Builder",
-        detail:
-          stats.poDrafts > 0
-            ? `${stats.poDrafts} builder draft${stats.poDrafts === 1 ? "" : "s"} waiting for style setup or review.`
-            : "Step 2: build PO workbooks after catalog items are ready.",
-        href: stats.poDrafts > 0 ? "/dashboard/po-builder" : "/dashboard/po-builder/new",
-        badge:
-          stats.poDrafts > 0
-            ? `${stats.poDrafts} draft${stats.poDrafts === 1 ? "" : "s"}`
-            : "Step 2",
-      },
-      {
-        title: "Review Received POs",
-        detail:
-          stats.receivedParsed > 0
-            ? `${stats.receivedParsed} received PO${stats.receivedParsed === 1 ? "" : "s"} parsed and ready for confirmation.`
-            : "Separate function: upload and confirm official marketplace POs independently of PO Builder.",
-        href: "/dashboard/received-pos",
-        badge:
-          stats.receivedParsed > 0 ? `${stats.receivedParsed} awaiting confirm` : "Separate lane",
-      },
-      {
-        title: "Finish Documents",
-        detail:
-          stats.receivedConfirmed > 0
-            ? `${stats.receivedConfirmed} confirmed PO${stats.receivedConfirmed === 1 ? "" : "s"} can move into barcode, invoice, and packing.`
-            : "Barcode, invoice, and packing are downstream docs generated after received PO confirmation.",
-        href: "/dashboard/received-pos",
-        badge: stats.receivedConfirmed > 0 ? `${stats.receivedConfirmed} ready` : "Documents",
-      },
-      {
-        title: "Complete Settings Setup",
-        detail:
-          stats.brandProfileCompletion < 100 || stats.cartonRules === 0
-            ? "Fill out brand identity, invoice defaults, PO builder defaults, and packing rules."
-            : "Your operational defaults are set. Review them whenever workflows change.",
-        href: "/dashboard/settings",
-        badge:
-          stats.brandProfileCompletion < 100 || stats.cartonRules === 0
-            ? `${stats.brandProfileCompletion}% configured`
-            : "Configured",
-      },
-    ];
-  }, [stats]);
-
-  const moduleCards = useMemo<ModuleCard[]>(() => {
-    return [
-      {
-        title: "Catalog",
-        detail: "Approved styles and review queues that feed every downstream workflow.",
-        href: "/dashboard/catalog",
-        metrics: [`${stats.catalogReady} ready styles`, `${stats.catalogNeedsReview} need review`],
-        cta: "Open catalog",
-      },
-      {
-        title: "PO Format Builder",
-        detail:
-          "Build export-ready workbooks from styles, colorways, ratios, and AI-reviewed attributes.",
-        href: "/dashboard/po-builder",
-        metrics: [
-          `${stats.poDrafts} drafts`,
-          `${stats.poAnalyzing} in AI review`,
-          `${stats.poReady} ready to export`,
-        ],
-        cta: "Open builder",
-      },
-      {
-        title: "Received POs",
-        detail:
-          "Separate function: review returned marketplace POs, then generate barcode, invoice, and packing outputs.",
-        href: "/dashboard/received-pos",
-        metrics: [
-          `${stats.receivedUploaded} uploaded`,
-          `${stats.receivedParsed} parsed`,
-          `${stats.receivedConfirmed} confirmed`,
-        ],
-        cta: "Open received POs",
-      },
-      {
-        title: "Settings",
-        detail: "Control brand identity, builder defaults, invoice defaults, and carton rules.",
-        href: "/dashboard/settings",
-        metrics: [
-          `${stats.brandProfileCompletion}% profile complete`,
-          `${stats.cartonRules} carton rules`,
-        ],
-        cta: "Open settings",
-      },
-    ];
-  }, [stats]);
-
   const attentionItems = useMemo<AttentionItem[]>(() => {
     const items: AttentionItem[] = [];
+    if (stats.receivedParsed > 0) {
+      items.push({
+        title: "Received POs awaiting confirmation",
+        detail: `${stats.receivedParsed} parsed PO${stats.receivedParsed === 1 ? "" : "s"} ready for review and document generation.`,
+        href: "/dashboard/received-pos",
+        badge: "Action Required",
+      });
+    }
     if (stats.catalogNeedsReview > 0) {
       items.push({
         title: "Catalog styles need review",
-        detail: `${stats.catalogNeedsReview} product${stats.catalogNeedsReview === 1 ? "" : "s"} still need catalog cleanup before they are safe to use downstream.`,
+        detail: `${stats.catalogNeedsReview} product${stats.catalogNeedsReview === 1 ? "" : "s"} need data verification.`,
         href: "/dashboard/catalog",
+        badge: "Review",
       });
     }
     if (stats.poAnalyzing > 0) {
       items.push({
-        title: "PO builders are still in AI review",
-        detail: `${stats.poAnalyzing} builder${stats.poAnalyzing === 1 ? "" : "s"} are waiting for AI extraction or manual attribute checks.`,
+        title: "PO Builders in AI review",
+        detail: `${stats.poAnalyzing} workbook${stats.poAnalyzing === 1 ? "" : "s"} processing attribute extraction.`,
         href: "/dashboard/po-builder",
-      });
-    }
-    if (stats.poReady > 0) {
-      items.push({
-        title: "Workbook exports are ready",
-        detail: `${stats.poReady} builder${stats.poReady === 1 ? "" : "s"} are ready to download as workbooks.`,
-        href: "/dashboard/po-builder",
-      });
-    }
-    if (stats.receivedParsed > 0) {
-      items.push({
-        title: "Received POs need confirmation",
-        detail: `${stats.receivedParsed} parsed PO${stats.receivedParsed === 1 ? "" : "s"} should be reviewed and confirmed before documents can be generated.`,
-        href: "/dashboard/received-pos",
-      });
-    }
-    if (stats.brandProfileCompletion < 100 || stats.cartonRules === 0) {
-      items.push({
-        title: "Operational defaults are incomplete",
-        detail:
-          "Complete brand, invoice, builder, and packing settings so downstream documents use the right defaults.",
-        href: "/dashboard/settings",
-      });
-    }
-    if (items.length === 0) {
-      items.push({
-        title: "No blockers right now",
-        detail:
-          "Core workflows are clear. The best next move is usually starting a new PO builder or uploading the next received PO.",
-        href: "/dashboard/po-builder/new",
+        badge: "In Progress",
       });
     }
     return items;
@@ -328,202 +169,218 @@ export function DashboardView(): JSX.Element {
 
   return (
     <DashboardShell
-      subtitle="A workflow command center for catalog readiness, PO creation, received PO review, and document generation."
+      subtitle="Your central hub for catalog management, PO workbook creation, and automated document generation."
       title="Dashboard"
     >
-      <div className="space-y-6">
+      <div className="space-y-8 pb-16">
         {error ? (
-          <Card className="border border-kira-warmgray/45 p-4 text-sm text-kira-warmgray">
+          <Card className="border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-400">
             {error}
           </Card>
         ) : null}
 
-        <Card className="overflow-hidden rounded-[32px] border border-kira-warmgray/45 bg-[linear-gradient(135deg,rgba(247,242,236,1),rgba(255,255,255,1),rgba(237,227,216,0.78))] p-6 md:p-8">
-          <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-kira-midgray">
-                Operations command center
-              </p>
-              <h1 className="mt-3 font-sans text-4xl leading-tight text-kira-black">
-                Run the real workflows from one place.
+        {/* HERO HERO SECTION */}
+        <Card className="relative overflow-hidden rounded-[32px] border border-kira-warmgray/30 bg-gradient-to-br from-[#f9f5f0] via-white to-[#f2eae1] p-6 shadow-sm dark:border-white/10 dark:from-[#181a20] dark:via-[#12141a] dark:to-[#1e1a17] md:p-8">
+          <div className="flex flex-col justify-between gap-6 md:flex-row md:items-center">
+            <div className="max-w-2xl space-y-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-kira-brown/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-kira-brown dark:bg-amber-500/20 dark:text-amber-300">
+                ✨ Operations Hub
+              </span>
+              <h1 className="text-3xl font-bold tracking-tight text-kira-black dark:text-white md:text-4xl">
+                What would you like to build today?
               </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-kira-darkgray">
-                This dashboard now reflects the product you actually have: catalog readiness, PO
-                workbook creation, received PO processing, and operational defaults that drive
-                document generation.
+              <p className="text-sm text-kira-darkgray dark:text-gray-300">
+                Manage product catalogs, construct structured PO export workbooks, or turn
+                marketplace POs into barcodes, invoices, and packing sheets.
               </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Link href="/dashboard/catalog">
-                  <Button>Add items in catalog</Button>
-                </Link>
-                <Link href="/dashboard/po-builder/new">
-                  <Button variant="secondary">Then build PO workbook</Button>
-                </Link>
-              </div>
             </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Card className="rounded-[24px] border border-kira-warmgray/45 bg-white/85 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-kira-midgray">
-                  Catalog ready
-                </p>
-                <p className="mt-2 text-3xl font-semibold text-kira-black">
-                  {loading ? "..." : stats.catalogReady}
-                </p>
-                <p className="mt-2 text-sm text-kira-darkgray">Styles ready to feed the builder</p>
-              </Card>
-              <Card className="rounded-[24px] border border-kira-warmgray/45 bg-white/85 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-kira-midgray">
-                  Builder exports
-                </p>
-                <p className="mt-2 text-3xl font-semibold text-kira-black">
-                  {loading ? "..." : stats.poReady}
-                </p>
-                <p className="mt-2 text-sm text-kira-darkgray">PO workbooks ready to download</p>
-              </Card>
-              <Card className="rounded-[24px] border border-kira-warmgray/45 bg-white/85 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-kira-midgray">
-                  Need confirmation
-                </p>
-                <p className="mt-2 text-3xl font-semibold text-kira-black">
-                  {loading ? "..." : stats.receivedParsed}
-                </p>
-                <p className="mt-2 text-sm text-kira-darkgray">Received POs waiting for review</p>
-              </Card>
-              <Card className="rounded-[24px] border border-kira-warmgray/45 bg-white/85 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-kira-midgray">
-                  Settings readiness
-                </p>
-                <p className="mt-2 text-3xl font-semibold text-kira-black">
-                  {loading ? "..." : `${stats.brandProfileCompletion}%`}
-                </p>
-                <p className="mt-2 text-sm text-kira-darkgray">
-                  Brand and invoice profile completion
-                </p>
-              </Card>
-            </div>
-          </div>
-        </Card>
-
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-          {quickActions.map((action) => (
-            <QuickActionCard key={action.title} {...action} />
-          ))}
-        </section>
-
-        <Card className="rounded-[28px] border border-kira-warmgray/45 p-6">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-kira-midgray">
-                Workflow pipeline
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold text-kira-black">
-                See where work is moving and where it’s stuck.
-              </h2>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            {[
-              {
-                label: "Catalog review",
-                value: stats.catalogNeedsReview,
-                detail: "Styles needing cleanup",
-                href: "/dashboard/catalog",
-              },
-              {
-                label: "PO setup",
-                value: stats.poDrafts,
-                detail: "Builder drafts in progress",
-                href: "/dashboard/po-builder",
-              },
-              {
-                label: "AI review",
-                value: stats.poAnalyzing,
-                detail: "Builders still processing",
-                href: "/dashboard/po-builder",
-              },
-              {
-                label: "Received PO confirm",
-                value: stats.receivedParsed,
-                detail: "Parsed POs awaiting approval",
-                href: "/dashboard/received-pos",
-              },
-              {
-                label: "Documents ready",
-                value: stats.receivedConfirmed,
-                detail: "Confirmed POs ready for docs",
-                href: "/dashboard/received-pos",
-              },
-            ].map((stage) => (
-              <Link href={stage.href} key={stage.label}>
-                <Card className="h-full rounded-[24px] border border-kira-warmgray/45 p-4 transition-transform duration-200 hover:-translate-y-0.5">
-                  <p className="text-xs uppercase tracking-[0.18em] text-kira-midgray">
-                    {stage.label}
-                  </p>
-                  <p className="mt-3 text-3xl font-semibold text-kira-black">
-                    {loading ? "..." : stage.value}
-                  </p>
-                  <p className="mt-2 text-sm text-kira-darkgray">{stage.detail}</p>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        </Card>
-
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {moduleCards.map((module) => (
-            <Card className="rounded-[28px] border border-kira-warmgray/45 p-6" key={module.title}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-2xl font-semibold text-kira-black">{module.title}</h2>
-                  <p className="mt-2 text-sm leading-6 text-kira-darkgray">{module.detail}</p>
-                </div>
-              </div>
-              <div className="mt-5 flex flex-wrap gap-2">
-                {module.metrics.map((metric) => (
-                  <span
-                    className="rounded-full bg-kira-warmgray/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-kira-darkgray"
-                    key={metric}
-                  >
-                    {loading ? "Loading..." : metric}
-                  </span>
-                ))}
-              </div>
-              <Link className="mt-6 inline-block" href={module.href}>
-                <Button className="px-5" variant="secondary">
-                  {module.cta}
+            <div className="flex shrink-0 flex-wrap gap-3">
+              <Link href="/dashboard/received-pos">
+                <Button className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 font-semibold shadow-md">
+                  <span>⚡ Upload Received PO</span>
                 </Button>
               </Link>
-            </Card>
-          ))}
-        </section>
-
-        <Card className="rounded-[28px] border border-kira-warmgray/45 p-6">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-kira-midgray">Attention queue</p>
-            <h2 className="mt-2 text-2xl font-semibold text-kira-black">
-              Work that deserves your eyes next.
-            </h2>
-          </div>
-          <div className="mt-6 space-y-3">
-            {attentionItems.map((item) => (
-              <Link
-                className="block rounded-2xl border border-kira-warmgray/35 p-4 transition-colors hover:bg-kira-warmgray/12"
-                href={item.href}
-                key={item.title}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <p className="text-base font-semibold text-kira-black">{item.title}</p>
-                    <p className="mt-1 text-sm leading-6 text-kira-darkgray">{item.detail}</p>
-                  </div>
-                  <span className="text-sm font-medium text-kira-brown">Open</span>
-                </div>
+              <Link href="/dashboard/po-builder/new">
+                <Button variant="secondary" className="font-semibold">
+                  <span>➕ New PO Workbook</span>
+                </Button>
               </Link>
-            ))}
+            </div>
           </div>
         </Card>
+
+        {/* ATTENTION QUEUE / NOTIFICATIONS */}
+        {attentionItems.length > 0 ? (
+          <div className="space-y-3">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-kira-midgray dark:text-gray-400">
+              Needs Attention
+            </h2>
+            <div className="grid gap-3 md:grid-cols-3">
+              {attentionItems.map((item) => (
+                <Link key={item.title} href={item.href} className="group block">
+                  <Card className="h-full rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-500/50 hover:shadow-md dark:border-amber-500/20 dark:bg-amber-500/10">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="rounded-md bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800 dark:bg-amber-500/30 dark:text-amber-200">
+                        {item.badge}
+                      </span>
+                      <span className="text-xs font-semibold text-kira-brown group-hover:underline dark:text-amber-400">
+                        Resolve →
+                      </span>
+                    </div>
+                    <p className="mt-2.5 font-bold text-kira-black dark:text-white">{item.title}</p>
+                    <p className="mt-1 text-xs text-kira-darkgray dark:text-gray-300">
+                      {item.detail}
+                    </p>
+                  </Card>
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {/* CORE PILLARS 2x2 GRID */}
+        <div className="space-y-3">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-kira-midgray dark:text-gray-400">
+            Core Modules
+          </h2>
+          <div className="grid gap-5 md:grid-cols-2">
+            {/* CATALOG MODULE */}
+            <Card className="flex flex-col justify-between rounded-[28px] border border-kira-warmgray/40 bg-white p-6 shadow-sm transition-all hover:border-kira-brown/40 dark:border-white/10 dark:bg-[#15171e]">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/10 text-2xl">
+                    📦
+                  </span>
+                  <div className="flex gap-2">
+                    <span className="rounded-full bg-kira-warmgray/20 px-3 py-1 text-xs font-semibold text-kira-darkgray dark:bg-white/10 dark:text-gray-300">
+                      {loading ? "..." : stats.catalogReady} Ready
+                    </span>
+                    {stats.catalogNeedsReview > 0 ? (
+                      <span className="rounded-full bg-amber-500/20 px-3 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-500/30 dark:text-amber-200">
+                        {stats.catalogNeedsReview} Review
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <h3 className="mt-4 text-xl font-bold text-kira-black dark:text-white">
+                  Catalog Library
+                </h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-kira-darkgray dark:text-gray-400">
+                  Manage styles, colorways, ratios, and attributes. Approved styles power all
+                  downstream PO builders.
+                </p>
+              </div>
+              <div className="mt-6 pt-4 border-t border-kira-warmgray/15 dark:border-white/5 flex justify-end">
+                <Link href="/dashboard/catalog">
+                  <Button variant="secondary" className="text-xs font-semibold">
+                    Explore Catalog →
+                  </Button>
+                </Link>
+              </div>
+            </Card>
+
+            {/* PO BUILDER MODULE */}
+            <Card className="flex flex-col justify-between rounded-[28px] border border-kira-warmgray/40 bg-white p-6 shadow-sm transition-all hover:border-kira-brown/40 dark:border-white/10 dark:bg-[#15171e]">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-500/10 text-2xl">
+                    🛠️
+                  </span>
+                  <div className="flex gap-2">
+                    <span className="rounded-full bg-kira-warmgray/20 px-3 py-1 text-xs font-semibold text-kira-darkgray dark:bg-white/10 dark:text-gray-300">
+                      {loading ? "..." : stats.poDrafts} Drafts
+                    </span>
+                    <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                      {loading ? "..." : stats.poReady} Exports
+                    </span>
+                  </div>
+                </div>
+                <h3 className="mt-4 text-xl font-bold text-kira-black dark:text-white">
+                  PO Workbook Builder
+                </h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-kira-darkgray dark:text-gray-400">
+                  Assemble size distributions, apply packing rules, and generate factory-ready Excel
+                  workbooks.
+                </p>
+              </div>
+              <div className="mt-6 pt-4 border-t border-kira-warmgray/15 dark:border-white/5 flex justify-end">
+                <Link href="/dashboard/po-builder">
+                  <Button variant="secondary" className="text-xs font-semibold">
+                    Open Builder →
+                  </Button>
+                </Link>
+              </div>
+            </Card>
+
+            {/* RECEIVED POS MODULE */}
+            <Card className="flex flex-col justify-between rounded-[28px] border border-kira-warmgray/40 bg-white p-6 shadow-sm transition-all hover:border-kira-brown/40 dark:border-white/10 dark:bg-[#15171e]">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-2xl">
+                    📑
+                  </span>
+                  <div className="flex gap-2">
+                    <span className="rounded-full bg-kira-warmgray/20 px-3 py-1 text-xs font-semibold text-kira-darkgray dark:bg-white/10 dark:text-gray-300">
+                      {loading
+                        ? "..."
+                        : stats.receivedUploaded +
+                          stats.receivedParsed +
+                          stats.receivedConfirmed}{" "}
+                      Total POs
+                    </span>
+                  </div>
+                </div>
+                <h3 className="mt-4 text-xl font-bold text-kira-black dark:text-white">
+                  Received POs & Documents
+                </h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-kira-darkgray dark:text-gray-400">
+                  Upload marketplace PDFs or images, verify extracted line items, and auto-generate
+                  Barcode sheets, Commercial Invoices, and Packing lists.
+                </p>
+              </div>
+              <div className="mt-6 pt-4 border-t border-kira-warmgray/15 dark:border-white/5 flex justify-end">
+                <Link href="/dashboard/received-pos">
+                  <Button className="bg-kira-brown hover:bg-kira-brown/90 text-white text-xs font-semibold">
+                    Review POs →
+                  </Button>
+                </Link>
+              </div>
+            </Card>
+
+            {/* SETTINGS MODULE */}
+            <Card className="flex flex-col justify-between rounded-[28px] border border-kira-warmgray/40 bg-white p-6 shadow-sm transition-all hover:border-kira-brown/40 dark:border-white/10 dark:bg-[#15171e]">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-500/10 text-2xl">
+                    ⚙️
+                  </span>
+                  <div className="flex gap-2">
+                    <span className="rounded-full bg-kira-warmgray/20 px-3 py-1 text-xs font-semibold text-kira-darkgray dark:bg-white/10 dark:text-gray-300">
+                      {loading ? "..." : `${stats.brandProfileCompletion}%`} Profile
+                    </span>
+                    <span className="rounded-full bg-kira-warmgray/20 px-3 py-1 text-xs font-semibold text-kira-darkgray dark:bg-white/10 dark:text-gray-300">
+                      {loading ? "..." : stats.cartonRules} Carton Rules
+                    </span>
+                  </div>
+                </div>
+                <h3 className="mt-4 text-xl font-bold text-kira-black dark:text-white">
+                  Operational Settings
+                </h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-kira-darkgray dark:text-gray-400">
+                  Configure supplier identity, tax details, invoice prefixes, barcode templates, and
+                  standard carton measurement rules.
+                </p>
+              </div>
+              <div className="mt-6 pt-4 border-t border-kira-warmgray/15 dark:border-white/5 flex justify-end">
+                <Link href="/dashboard/settings">
+                  <Button variant="secondary" className="text-xs font-semibold">
+                    Manage Settings →
+                  </Button>
+                </Link>
+              </div>
+            </Card>
+          </div>
+        </div>
       </div>
     </DashboardShell>
   );

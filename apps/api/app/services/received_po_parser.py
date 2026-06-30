@@ -22,6 +22,7 @@ from app.services.received_po_agent import (
     STATUS_RUNNING,
     log_received_po_agent_event,
 )
+from app.services.received_po_reasoning import reason_about_received_po
 
 SIZE_ORDER = {'XS': 0, 'S': 1, 'M': 2, 'L': 3, 'XL': 4, 'XXL': 5, 'XXXL': 6}
 LINE_ITEM_FIELD_ALIASES = {
@@ -241,11 +242,11 @@ def _extract_line_items_from_rows(rows: list[list[str]]) -> list[dict[str, objec
         if len(row) <= max(header_map.values()):
             continue
 
-        def _value(field_name: str) -> str:
+        def _value(field_name: str, source_row: list[str] = row) -> str:
             column_index = header_map.get(field_name)
-            if column_index is None or column_index >= len(row):
+            if column_index is None or column_index >= len(source_row):
                 return ''
-            return row[column_index].strip()
+            return source_row[column_index].strip()
 
         brand_style_code = _value('brand_style_code')
         sku_id = _value('sku_id')
@@ -409,7 +410,7 @@ def process_received_po_parse_job(received_po_id: str) -> None:
 
         db.flush()
         db.refresh(record)
-        run_exception_resolution_for_received_po(db, record)
+        exception_summary = run_exception_resolution_for_received_po(db, record)
 
         po_date_value = parsed_payload.get('po_date')
         parsed_po_date = None
@@ -422,6 +423,31 @@ def process_received_po_parse_job(received_po_id: str) -> None:
         record.po_number = str(parsed_payload.get('po_number') or '').strip() or record.po_number
         record.po_date = parsed_po_date or record.po_date
         record.distributor = str(parsed_payload.get('distributor') or '').strip() or record.distributor
+        qwen_reasoning = reason_about_received_po(record, exception_summary)
+        parsed_payload['qwen_reasoning'] = qwen_reasoning
+        log_received_po_agent_event(
+            db,
+            record,
+            event_type='agent.qwen_reasoning_completed',
+            title='Qwen risk reasoning completed',
+            summary=(
+                f"The autopilot classified this PO as {qwen_reasoning['overall_risk']} risk "
+                f"and recommended {qwen_reasoning['decision'].replace('_', ' ')}."
+            ),
+            status=STATUS_NEEDS_REVIEW if qwen_reasoning['decision'] == 'needs_human_review' else 'completed',
+            tool_name='qwen_po_reasoner',
+            metadata={
+                'source': qwen_reasoning['source'],
+                'provider': qwen_reasoning['provider'],
+                'model': qwen_reasoning['model'],
+                'overall_risk': qwen_reasoning['overall_risk'],
+                'confidence': qwen_reasoning['confidence'],
+                'decision': qwen_reasoning['decision'],
+                'critical_checks': qwen_reasoning['critical_checks'],
+                'review_questions': qwen_reasoning['review_questions'],
+                'suggested_next_action': qwen_reasoning['suggested_next_action'],
+            },
+        )
         record.raw_extracted_json = _json_dumps(parsed_payload)
         record.updated_at = utcnow()
         record.status = 'parsed'

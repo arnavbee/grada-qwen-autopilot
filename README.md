@@ -14,12 +14,14 @@ The agent flow:
 
 1. Upload a marketplace PO in PDF, XLS, or XLSX format.
 2. Qwen-powered extraction and parser tools normalize PO header and line-item data.
-3. Exception tools flag risky rows and suggest fixes.
-4. A human reviewer accepts, edits, or rejects suggestions.
-5. Human confirmation unlocks generated barcode stickers, commercial invoice, and packing list PDFs.
-6. The Autopilot timeline shows agent actions, tool calls, status changes, and human checkpoints.
+3. Qwen risk reasoning classifies the PO, explains critical checks, and proposes the next action.
+4. Exception tools flag risky rows and suggest fixes.
+5. A human reviewer accepts, edits, or rejects suggestions.
+6. Human confirmation unlocks generated barcode stickers, commercial invoice, and packing list PDFs.
+7. The Autopilot timeline shows agent actions, tool calls, status changes, and human checkpoints.
 
 Architecture diagram: [docs/qwen-hackathon-architecture.md](docs/qwen-hackathon-architecture.md)
+Hackathon judging guide: [HACKATHON.md](HACKATHON.md)
 
 ## Why Teams Use Grada
 

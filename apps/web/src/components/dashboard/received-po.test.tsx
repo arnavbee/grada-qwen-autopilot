@@ -564,7 +564,7 @@ describe("received PO dashboard flows", () => {
     });
 
     expect(uploadReceivedPOMock).toHaveBeenCalledWith(file);
-    expect(screen.getByText("AI is reading your PO...")).toBeTruthy();
+    expect(screen.getByText("Analyzing Purchase Order")).toBeTruthy();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
@@ -586,7 +586,9 @@ describe("received PO dashboard flows", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Confirm PO data" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Confirmed. Open documents" })).toBeTruthy();
+      expect(screen.getAllByRole("button", { name: /Generate Documents/i }).length).toBeGreaterThan(
+        0,
+      );
     });
     expect((screen.getByDisplayValue("STY-2026-001") as HTMLInputElement).disabled).toBe(true);
   });

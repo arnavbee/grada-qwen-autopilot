@@ -30,10 +30,10 @@ export function DocumentCard({
           ? "border-rose-500/25 bg-rose-500/12 text-rose-700 dark:border-rose-400/20 dark:bg-rose-400/10 dark:text-rose-200"
           : "border-kira-warmgray/35 bg-kira-warmgray/20 text-kira-darkgray dark:border-white/10 dark:bg-white/10 dark:text-gray-300";
   const accentClassName = title.toLowerCase().includes("invoice")
-    ? "from-[#fff8ea] via-[#f8efe1] to-[#f3e7dc] dark:from-[#231c16] dark:via-[#1d1714] dark:to-[#171313]"
+    ? "from-[#fefcf5] via-[#faf5e8]/80 to-transparent dark:from-[#282218] dark:via-[#1e1a14]/60 dark:to-transparent"
     : title.toLowerCase().includes("barcode")
-      ? "from-[#eefaf6] via-[#e3f4ee] to-[#dff0ec] dark:from-[#10211e] dark:via-[#0f1c1a] dark:to-[#111819]"
-      : "from-[#eff4ff] via-[#e8eefc] to-[#e4e7f8] dark:from-[#151b2d] dark:via-[#151828] dark:to-[#14151f]";
+      ? "from-[#eefaf6] via-[#e3f4ee]/80 to-transparent dark:from-[#16261f] dark:via-[#131e18]/60 dark:to-transparent"
+      : "from-[#f0f4f8] via-[#e8eef4]/80 to-transparent dark:from-[#1a2228] dark:via-[#151b20]/60 dark:to-transparent";
   const glyph = title.toLowerCase().includes("invoice")
     ? "IN"
     : title.toLowerCase().includes("barcode")
@@ -43,10 +43,7 @@ export function DocumentCard({
   return (
     <Card className="relative flex h-full flex-col gap-5 overflow-hidden border border-kira-warmgray/20 p-0 shadow-[0_24px_70px_-45px_rgba(76,56,37,0.55)]">
       <div
-        className={cn(
-          "absolute inset-x-0 top-0 h-28 bg-gradient-to-br opacity-95",
-          accentClassName,
-        )}
+        className={cn("absolute inset-0 bg-gradient-to-b pointer-events-none", accentClassName)}
       />
       <div className="relative flex items-start justify-between gap-4 px-5 pb-4 pt-5">
         <div className="flex min-w-0 items-start gap-4">

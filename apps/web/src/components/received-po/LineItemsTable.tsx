@@ -4,8 +4,10 @@ import { ReceivedPOLineItemInput } from "@/src/lib/received-po";
 
 interface LineItemsTableProps {
   editable: boolean;
+  highlightedItemId?: string | null;
   items: ReceivedPOLineItemInput[];
   onChange: (items: ReceivedPOLineItemInput[]) => void;
+  onSelectException?: (itemId: string) => void;
 }
 
 const columns: Array<{
@@ -28,7 +30,13 @@ function normalizeTextValue(value: string): string | null {
   return trimmed ? trimmed : null;
 }
 
-export function LineItemsTable({ editable, items, onChange }: LineItemsTableProps): JSX.Element {
+export function LineItemsTable({
+  editable,
+  highlightedItemId,
+  items,
+  onChange,
+  onSelectException,
+}: LineItemsTableProps): JSX.Element {
   const grouped = items.reduce<Record<string, ReceivedPOLineItemInput[]>>((groups, item) => {
     const key = item.brand_style_code || "Uncategorized";
     groups[key] = groups[key] ?? [];
@@ -72,6 +80,9 @@ export function LineItemsTable({ editable, items, onChange }: LineItemsTableProp
                 {column.label}
               </th>
             ))}
+            <th className="px-3 py-3 text-left font-semibold text-kira-darkgray">
+              AI Status & Trace
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -80,8 +91,10 @@ export function LineItemsTable({ editable, items, onChange }: LineItemsTableProp
               editable={editable}
               groupItems={groupItems}
               groupKey={groupKey}
+              highlightedItemId={highlightedItemId}
               key={groupKey}
               onFieldChange={handleFieldChange}
+              onSelectException={onSelectException}
             />
           ))}
         </tbody>
@@ -94,27 +107,39 @@ interface FragmentGroupProps {
   editable: boolean;
   groupItems: ReceivedPOLineItemInput[];
   groupKey: string;
+  highlightedItemId?: string | null;
   onFieldChange: (itemId: string, field: keyof ReceivedPOLineItemInput, value: string) => void;
+  onSelectException?: (itemId: string) => void;
 }
 
 function FragmentGroup({
   editable,
   groupItems,
   groupKey,
+  highlightedItemId,
   onFieldChange,
+  onSelectException,
 }: FragmentGroupProps): JSX.Element {
   return (
     <>
       <tr className="border-t border-kira-warmgray/30 bg-kira-offwhite/60">
         <td
           className="px-3 py-2 text-xs font-bold uppercase tracking-[0.14em] text-kira-midgray"
-          colSpan={columns.length}
+          colSpan={columns.length + 1}
         >
           {groupKey}
         </td>
       </tr>
       {groupItems.map((item) => (
-        <tr className="border-t border-kira-warmgray/25" key={item.id}>
+        <tr
+          id={`row-${item.id}`}
+          className={`border-t border-kira-warmgray/25 transition-all duration-700 ${
+            item.id === highlightedItemId
+              ? "bg-amber-500/30 ring-2 ring-amber-500/50 dark:bg-amber-500/40"
+              : ""
+          }`}
+          key={item.id}
+        >
           {columns.map((column) => (
             <td className="px-3 py-2 align-top" key={`${item.id}-${column.key}`}>
               {editable ? (
@@ -131,6 +156,30 @@ function FragmentGroup({
               )}
             </td>
           ))}
+          <td className="px-3 py-2 align-middle">
+            <div className="flex items-center gap-2">
+              {item.resolution_status === "needs_review" ? (
+                <>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-500/20 dark:text-amber-300">
+                    ⚠️ Needs Review
+                  </span>
+                  {onSelectException ? (
+                    <button
+                      type="button"
+                      onClick={() => onSelectException(item.id)}
+                      className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-500/20 dark:text-amber-200"
+                    >
+                      [Fix in Exception Box ↗]
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
+                  ✅ Updated & Synced
+                </span>
+              )}
+            </div>
+          </td>
         </tr>
       ))}
     </>

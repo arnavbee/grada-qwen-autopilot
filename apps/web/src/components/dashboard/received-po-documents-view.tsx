@@ -377,6 +377,7 @@ function WorkspaceTabCard({
 }): JSX.Element {
   return (
     <button
+      aria-label={label}
       className={cn(
         "group min-w-[220px] rounded-[22px] border px-4 py-4 text-left transition duration-200",
         active
@@ -640,7 +641,12 @@ export function ReceivedPODocumentsView({
     useState<BuyerDocumentTemplateParseResponse | null>(null);
   const [isParsingInvoiceTemplate, setIsParsingInvoiceTemplate] = useState(false);
   const [activeTab, setActiveTab] = useState<DocumentWorkspaceTab>("barcode");
+  const [pendingPdfs, setPendingPdfs] = useState<{ invoice?: boolean; packing?: boolean }>({});
   const [packingListPreviewOpen, setPackingListPreviewOpen] = useState(false);
+  const [pdfPreviewModal, setPdfPreviewModal] = useState<{
+    title: string;
+    url: string | null;
+  } | null>(null);
   const [packingRulesDialogOpen, setPackingRulesDialogOpen] = useState(false);
   const [barcodeTemplateEditorOpen, setBarcodeTemplateEditorOpen] = useState(false);
   const [barcodeTemplateDraft, setBarcodeTemplateDraft] = useState<BarcodeTemplateDraft>(
@@ -664,6 +670,7 @@ export function ReceivedPODocumentsView({
   const [loading, setLoading] = useState(true);
   const [savingCartonId, setSavingCartonId] = useState<string | null>(null);
   const [workingKey, setWorkingKey] = useState<string | null>(null);
+  const [autoTriggered, setAutoTriggered] = useState(false);
 
   const totalPieces = useMemo(
     () => packingList?.cartons.reduce((sum, carton) => sum + carton.total_pieces, 0) ?? 0,
@@ -915,10 +922,7 @@ export function ReceivedPODocumentsView({
   }, [activeBarcodeJobId, barcodeJob, receivedPoId, selectedBarcodeMarketplaceTemplateId]);
 
   useEffect(() => {
-    if (!invoice || invoice.status === "final") {
-      return undefined;
-    }
-    if (workingKey !== "invoice-pdf") {
+    if (!invoice || invoice.status === "final" || invoice.file_url) {
       return undefined;
     }
     const interval = window.setInterval(async () => {
@@ -927,11 +931,13 @@ export function ReceivedPODocumentsView({
         if (nextInvoice) {
           setInvoice(nextInvoice);
           setInvoiceDetailsDraft(nextInvoice.details);
-          if (nextInvoice.status === "final") {
-            setWorkingKey(null);
+          if (nextInvoice.status === "final" || nextInvoice.file_url) {
+            setWorkingKey((current) => (current === "invoice-pdf" ? null : current));
+            setPendingPdfs((prev) => ({ ...prev, invoice: false }));
             window.clearInterval(interval);
           } else if (nextInvoice.status === "failed") {
-            setWorkingKey(null);
+            setWorkingKey((current) => (current === "invoice-pdf" ? null : current));
+            setPendingPdfs((prev) => ({ ...prev, invoice: false }));
             setStatusLine(null);
             setError("Invoice PDF generation failed. Please try again.");
             window.clearInterval(interval);
@@ -942,13 +948,10 @@ export function ReceivedPODocumentsView({
       }
     }, 2000);
     return () => window.clearInterval(interval);
-  }, [invoice, receivedPoId, workingKey]);
+  }, [invoice, receivedPoId]);
 
   useEffect(() => {
-    if (!packingList || packingList.status === "final") {
-      return undefined;
-    }
-    if (workingKey !== "packing-list-pdf") {
+    if (!packingList || packingList.status === "final" || packingList.file_url) {
       return undefined;
     }
     const interval = window.setInterval(async () => {
@@ -958,11 +961,13 @@ export function ReceivedPODocumentsView({
           setPackingList(nextPackingList);
           setSelectedPackingTemplateId(nextPackingList.template_id ?? selectedPackingTemplateId);
           setCartonDrafts(buildCartonDrafts(nextPackingList));
-          if (nextPackingList.status === "final") {
-            setWorkingKey(null);
+          if (nextPackingList.status === "final" || nextPackingList.file_url) {
+            setWorkingKey((current) => (current === "packing-list-pdf" ? null : current));
+            setPendingPdfs((prev) => ({ ...prev, packing: false }));
             window.clearInterval(interval);
           } else if (nextPackingList.status === "failed") {
-            setWorkingKey(null);
+            setWorkingKey((current) => (current === "packing-list-pdf" ? null : current));
+            setPendingPdfs((prev) => ({ ...prev, packing: false }));
             setStatusLine(null);
             setError("Packing list PDF generation failed. Please try again.");
             window.clearInterval(interval);
@@ -973,7 +978,13 @@ export function ReceivedPODocumentsView({
       }
     }, 2000);
     return () => window.clearInterval(interval);
-  }, [packingList, receivedPoId, selectedPackingTemplateId, workingKey]);
+  }, [packingList, receivedPoId, selectedPackingTemplateId]);
+
+  useEffect(() => {
+    if (barcodeJob?.file_url && invoice?.file_url && packingList?.file_url) {
+      setStatusLine("All documents successfully generated and ready for download!");
+    }
+  }, [barcodeJob?.file_url, invoice?.file_url, packingList?.file_url]);
 
   const openFile = (fileUrl: string | null): void => {
     const resolved = resolveFileUrl(fileUrl);
@@ -1060,8 +1071,10 @@ export function ReceivedPODocumentsView({
 
   const handleGenerateBarcodes = async (isBatch = false): Promise<void> => {
     try {
-      setActiveTab("barcode");
-      setWorkingKey("barcodes");
+      if (!isBatch) {
+        setActiveTab("barcode");
+        setWorkingKey("barcodes");
+      }
       setError(null);
       setStatusLine(null);
       const templateKind = selectedBarcodeTemplate === "styli" ? "styli" : "custom";
@@ -1271,8 +1284,11 @@ export function ReceivedPODocumentsView({
 
   const handleGenerateInvoicePdf = async (isBatch = false): Promise<void> => {
     try {
-      setActiveTab("invoice");
-      setWorkingKey("invoice-pdf");
+      if (!isBatch) {
+        setActiveTab("invoice");
+        setWorkingKey("invoice-pdf");
+      }
+      setPendingPdfs((prev) => ({ ...prev, invoice: true }));
       setError(null);
       const ensuredInvoice =
         invoice ??
@@ -1367,10 +1383,12 @@ export function ReceivedPODocumentsView({
     }
   };
 
-  const handleCreatePackingList = async (): Promise<void> => {
+  const handleCreatePackingList = async (isBatch = false): Promise<void> => {
     try {
-      setActiveTab("packing");
-      setWorkingKey("packing-list-create");
+      if (!isBatch) {
+        setActiveTab("packing");
+        setWorkingKey("packing-list-create");
+      }
       setError(null);
       await createPackingList(receivedPoId, { template_id: selectedPackingTemplateId });
       const nextPackingList = await getOptionalPackingList(receivedPoId);
@@ -1381,7 +1399,9 @@ export function ReceivedPODocumentsView({
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to create packing list.");
     } finally {
-      setWorkingKey(null);
+      if (!isBatch) {
+        setWorkingKey(null);
+      }
     }
   };
 
@@ -1411,11 +1431,14 @@ export function ReceivedPODocumentsView({
 
   const handleGeneratePackingListPdf = async (isBatch = false): Promise<void> => {
     try {
-      setActiveTab("packing");
-      setWorkingKey("packing-list-pdf");
+      if (!isBatch) {
+        setActiveTab("packing");
+        setWorkingKey("packing-list-pdf");
+      }
+      setPendingPdfs((prev) => ({ ...prev, packing: true }));
       setError(null);
       if (!packingList) {
-        await handleCreatePackingList();
+        await handleCreatePackingList(isBatch);
       }
       const generation = await generatePackingListPdf(receivedPoId, {
         template_id: selectedPackingTemplateId,
@@ -1543,7 +1566,7 @@ export function ReceivedPODocumentsView({
         await handleGeneratePackingListPdf(true);
       }
 
-      setStatusLine("All documents successfully generated!");
+      setStatusLine("All document generations initiated! Polling for completed PDFs...");
     } catch (nextError) {
       setError(
         nextError instanceof Error ? nextError.message : "Failed during batch document generation.",
@@ -1552,6 +1575,15 @@ export function ReceivedPODocumentsView({
       setWorkingKey(null);
     }
   };
+
+  useEffect(() => {
+    if (!loading && !autoTriggered && searchParams.get("autoGenerate") === "true") {
+      setAutoTriggered(true);
+      if (!barcodeJob?.file_url && !workingKey) {
+        handleGenerateAllDocuments();
+      }
+    }
+  }, [loading, autoTriggered, searchParams, barcodeJob, workingKey]);
 
   const workspaceTabs: Array<{
     key: DocumentWorkspaceTab;
@@ -1597,9 +1629,24 @@ export function ReceivedPODocumentsView({
       title="Received PO Documents"
       titleAppend={
         <div className="ml-3 flex items-center gap-3">
-          <Button disabled={workingKey === "generate-all"} onClick={handleGenerateAllDocuments}>
-            {workingKey === "generate-all" ? "Generating..." : "Generate All Documents"}
-          </Button>
+          {(() => {
+            const isAnyGenerating =
+              workingKey === "generate-all" ||
+              workingKey === "barcodes" ||
+              workingKey === "invoice-pdf" ||
+              workingKey === "packing-list-pdf" ||
+              Boolean(pendingPdfs.invoice || pendingPdfs.packing) ||
+              Boolean(
+                barcodeJob &&
+                !barcodeJob.file_url &&
+                ["pending", "generating", "processing"].includes(barcodeJob.status),
+              );
+            return (
+              <Button disabled={isAnyGenerating} onClick={handleGenerateAllDocuments}>
+                {isAnyGenerating ? "Generating..." : "Generate All Documents"}
+              </Button>
+            );
+          })()}
           <div className="group relative z-50 inline-block">
             <button
               className="flex h-5 w-5 items-center justify-center rounded-full bg-kira-warmgray/25 text-[10px] font-bold text-kira-darkgray hover:bg-kira-warmgray/40 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/20"
@@ -1686,16 +1733,41 @@ export function ReceivedPODocumentsView({
             <DocumentCard
               actions={
                 <>
-                  <Button
-                    disabled={workingKey === "barcodes"}
-                    onClick={() => handleGenerateBarcodes()}
-                  >
-                    {workingKey === "barcodes" ? "Generating..." : "Generate barcodes"}
-                  </Button>
+                  {(() => {
+                    const isBarcodesGenerating =
+                      workingKey === "barcodes" ||
+                      workingKey === "generate-all" ||
+                      Boolean(
+                        barcodeJob &&
+                        !barcodeJob.file_url &&
+                        ["pending", "generating", "processing"].includes(barcodeJob.status),
+                      );
+                    return (
+                      <Button
+                        disabled={isBarcodesGenerating}
+                        onClick={() => handleGenerateBarcodes()}
+                      >
+                        {isBarcodesGenerating ? "Generating..." : "Generate barcodes"}
+                      </Button>
+                    );
+                  })()}
                   {barcodeJob?.file_url ? (
-                    <Button onClick={() => openFile(barcodeJob.file_url)} variant="secondary">
-                      Download PDF
-                    </Button>
+                    <>
+                      <Button
+                        onClick={() =>
+                          setPdfPreviewModal({
+                            title: "Barcode Sheet Preview",
+                            url: barcodeJob.file_url,
+                          })
+                        }
+                        variant="secondary"
+                      >
+                        Preview
+                      </Button>
+                      <Button onClick={() => openFile(barcodeJob.file_url)} variant="secondary">
+                        Download PDF
+                      </Button>
+                    </>
                   ) : null}
                 </>
               }
@@ -1721,6 +1793,7 @@ export function ReceivedPODocumentsView({
                       </p>
                       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr),auto]">
                         <button
+                          aria-label="Sticker template"
                           className="kira-focus-ring flex w-full items-center justify-between rounded-md border border-kira-warmgray/35 bg-white px-3 py-2 text-left text-kira-black dark:border-white/15 dark:bg-white/5 dark:text-white"
                           onClick={() => setTemplatePickerOpen(true)}
                           type="button"
@@ -2009,26 +2082,47 @@ export function ReceivedPODocumentsView({
             <DocumentCard
               actions={
                 <>
-                  {!invoice ? (
-                    <Button
-                      disabled={workingKey === "invoice-create"}
-                      onClick={handleCreateInvoice}
-                    >
-                      {workingKey === "invoice-create" ? "Creating..." : "Create invoice"}
-                    </Button>
-                  ) : null}
-                  {invoice ? (
-                    <Button
-                      disabled={workingKey === "invoice-pdf"}
-                      onClick={() => handleGenerateInvoicePdf()}
-                    >
-                      {workingKey === "invoice-pdf" ? "Generating..." : "Generate invoice PDF"}
-                    </Button>
-                  ) : null}
+                  {(() => {
+                    const isInvoiceGenerating =
+                      workingKey === "invoice-create" ||
+                      workingKey === "invoice-pdf" ||
+                      workingKey === "generate-all" ||
+                      Boolean(pendingPdfs.invoice);
+                    return (
+                      <>
+                        {!invoice ? (
+                          <Button disabled={isInvoiceGenerating} onClick={handleCreateInvoice}>
+                            {isInvoiceGenerating ? "Creating..." : "Create invoice"}
+                          </Button>
+                        ) : null}
+                        {invoice ? (
+                          <Button
+                            disabled={isInvoiceGenerating}
+                            onClick={() => handleGenerateInvoicePdf()}
+                          >
+                            {isInvoiceGenerating ? "Generating..." : "Generate invoice PDF"}
+                          </Button>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   {invoice?.file_url ? (
-                    <Button onClick={() => openFile(invoice.file_url)} variant="secondary">
-                      Download PDF
-                    </Button>
+                    <>
+                      <Button
+                        onClick={() =>
+                          setPdfPreviewModal({
+                            title: "Commercial Invoice Preview",
+                            url: invoice.file_url,
+                          })
+                        }
+                        variant="secondary"
+                      >
+                        Preview
+                      </Button>
+                      <Button onClick={() => openFile(invoice.file_url)} variant="secondary">
+                        Download PDF
+                      </Button>
+                    </>
                   ) : null}
                 </>
               }
@@ -2601,33 +2695,58 @@ export function ReceivedPODocumentsView({
                       Create invoice first
                     </Button>
                   ) : null}
-                  {!packingList && invoice ? (
-                    <Button
-                      disabled={workingKey === "packing-list-create"}
-                      onClick={handleCreatePackingList}
-                    >
-                      {workingKey === "packing-list-create"
-                        ? "Creating..."
-                        : "Create packing list draft"}
-                    </Button>
-                  ) : null}
-                  {packingList ? (
-                    <Button onClick={() => setPackingListPreviewOpen(true)} variant="secondary">
-                      Preview
-                    </Button>
-                  ) : null}
-                  {packingList ? (
-                    <Button
-                      disabled={workingKey === "packing-list-pdf"}
-                      onClick={() => handleGeneratePackingListPdf()}
-                    >
-                      {workingKey === "packing-list-pdf" ? "Generating..." : "Generate PDF"}
-                    </Button>
-                  ) : null}
+                  {(() => {
+                    const isPackingGenerating =
+                      workingKey === "packing-list-create" ||
+                      workingKey === "packing-list-pdf" ||
+                      workingKey === "generate-all" ||
+                      Boolean(pendingPdfs.packing);
+                    return (
+                      <>
+                        {!packingList && invoice ? (
+                          <Button
+                            disabled={isPackingGenerating}
+                            onClick={() => handleCreatePackingList()}
+                          >
+                            {isPackingGenerating ? "Creating..." : "Create packing list draft"}
+                          </Button>
+                        ) : null}
+                        {packingList ? (
+                          <Button
+                            onClick={() => setPackingListPreviewOpen(true)}
+                            variant="secondary"
+                          >
+                            Review Cartons
+                          </Button>
+                        ) : null}
+                        {packingList ? (
+                          <Button
+                            disabled={isPackingGenerating}
+                            onClick={() => handleGeneratePackingListPdf()}
+                          >
+                            {isPackingGenerating ? "Generating..." : "Generate PDF"}
+                          </Button>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   {packingList?.file_url ? (
-                    <Button onClick={() => openFile(packingList.file_url)} variant="secondary">
-                      Download PDF
-                    </Button>
+                    <>
+                      <Button
+                        onClick={() =>
+                          setPdfPreviewModal({
+                            title: "Packing List Preview",
+                            url: packingList.file_url,
+                          })
+                        }
+                        variant="secondary"
+                      >
+                        Preview
+                      </Button>
+                      <Button onClick={() => openFile(packingList.file_url)} variant="secondary">
+                        Download PDF
+                      </Button>
+                    </>
                   ) : null}
                 </>
               }
@@ -2675,7 +2794,7 @@ export function ReceivedPODocumentsView({
                         onClick={() => setPackingTemplateEditorOpen((current) => !current)}
                         variant="secondary"
                       >
-                        {packingTemplateEditorOpen ? "Hide template form" : "Save template"}
+                        Import / Create Template
                       </Button>
                     </div>
                     <p className="mt-2 text-xs text-kira-midgray">
@@ -2875,7 +2994,7 @@ export function ReceivedPODocumentsView({
                         onClick={() => setPackingTemplateEditorOpen((current) => !current)}
                         variant="secondary"
                       >
-                        {packingTemplateEditorOpen ? "Hide template form" : "Save template"}
+                        Import / Create Template
                       </Button>
                     </div>
                     <p className="mt-2 text-xs text-kira-midgray">
@@ -3223,6 +3342,66 @@ export function ReceivedPODocumentsView({
                 onSave={handleSaveCarton}
                 savingCartonId={savingCartonId}
               />
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {pdfPreviewModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-kira-black/60 backdrop-blur-sm p-4 md:p-8 animate-in fade-in duration-200">
+          <div
+            aria-modal="true"
+            className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[24px] bg-white shadow-2xl dark:border dark:border-white/10 dark:bg-[#12141B]"
+            role="dialog"
+          >
+            <div className="flex items-center justify-between border-b border-kira-warmgray/20 px-6 py-4 dark:border-white/10">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 font-bold dark:bg-emerald-500/20 dark:text-emerald-400">
+                  📄
+                </span>
+                <div>
+                  <h2 className="text-lg font-bold text-kira-black dark:text-white">
+                    {pdfPreviewModal.title}
+                  </h2>
+                  <p className="text-xs text-kira-midgray dark:text-gray-400">
+                    Document ready for download or direct printing
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {pdfPreviewModal.url ? (
+                  <Button
+                    onClick={() => openFile(pdfPreviewModal.url)}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 text-xs"
+                  >
+                    <span>⬇ Download PDF</span>
+                  </Button>
+                ) : null}
+                <Button
+                  onClick={() => setPdfPreviewModal(null)}
+                  variant="secondary"
+                  className="text-xs"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 bg-kira-offwhite/50 p-4 dark:bg-black/40 overflow-hidden flex items-center justify-center">
+              {pdfPreviewModal.url ? (
+                <iframe
+                  src={resolveFileUrl(pdfPreviewModal.url) ?? ""}
+                  className="h-full w-full rounded-xl border border-kira-warmgray/30 bg-white shadow-inner dark:border-white/10"
+                  title={pdfPreviewModal.title}
+                />
+              ) : (
+                <div className="text-center p-8">
+                  <p className="text-sm font-semibold text-kira-darkgray dark:text-gray-300">
+                    PDF not generated yet.
+                  </p>
+                  <p className="text-xs text-kira-midgray mt-1">
+                    Please click generate to build the PDF document.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>

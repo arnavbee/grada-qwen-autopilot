@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 from uuid import uuid4
 
@@ -15,10 +16,10 @@ from app.core.config import get_settings
 from app.db.base import utcnow
 from app.db.session import SessionLocal
 from app.models.ai_correction import AICorrection
+from app.models.po_request import PORequest
 from app.models.processing_job import ProcessingJob
 from app.models.product_image import ProductImage
 from app.models.product_measurement import ProductMeasurement
-from app.models.po_request import PORequest, PORequestItem
 from app.services.po_builder import normalize_ai_attributes, rebuild_po_request_rows
 
 settings = get_settings()
@@ -93,6 +94,12 @@ class AIService:
             api_key=client_config['api_key'] or 'missing-api-key',
             base_url=client_config['base_url'],
         )
+
+    @property
+    def vision_model(self) -> str:
+        if self.provider == 'qwen' and 'vl' not in self.model.lower():
+            return 'qwen-vl-max'
+        return self.model
 
     @staticmethod
     def _compact_prompt_value(value: str, *, max_length: int = 80) -> str:
@@ -313,7 +320,7 @@ Format strictly as:
             has_more_attempts = attempt_config != attempt_configs[-1]
             try:
                 response = self.client.chat.completions.create(
-                    model=self.model,
+                    model=self.vision_model,
                     messages=[
                         {
                             "role": "user",
@@ -378,7 +385,7 @@ Format strictly as:
             )
             try:
                 response = self.client.chat.completions.create(
-                    model=self.model,
+                    model=self.vision_model,
                     messages=request_messages,
                     max_tokens=attempt_config['max_tokens'],
                     response_format={"type": "json_object"}
@@ -417,6 +424,60 @@ Format strictly as:
                 return normalize_ai_attributes(None)
 
         return normalize_ai_attributes(None)
+
+    def assess_received_po_autopilot(
+        self,
+        *,
+        po_snapshot: dict[str, Any],
+        exception_summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Ask Qwen to review a parsed buyer PO and return structured operational risk guidance.
+        """
+        prompt = f"""
+You are Grada Autopilot, a wholesale operations agent reviewing a buyer purchase order before dispatch documents are generated.
+
+Assess this parsed PO and return ONLY valid JSON with this exact structure:
+{{
+  "overall_risk": "low" | "medium" | "high",
+  "confidence": 0-1,
+  "decision": "auto_continue" | "needs_human_review",
+  "critical_checks": [
+    {{"check": "string", "status": "pass" | "warning" | "fail", "reason": "string"}}
+  ],
+  "review_questions": ["short question for the human reviewer"],
+  "suggested_next_action": "short action"
+}}
+
+Rules:
+1. Treat zero or missing quantity, price, SKU, style code, size, or construction as review blockers.
+2. Prefer human review when commercial documents could be wrong.
+3. Keep reasons specific to the rows and fields shown.
+4. Do not invent buyer terms not present in the snapshot.
+
+Parsed PO snapshot:
+{json.dumps(po_snapshot, separators=(',', ':'), default=str)}
+
+Exception summary:
+{json.dumps(exception_summary, separators=(',', ':'), default=str)}
+"""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=700,
+                response_format={"type": "json_object"},
+            )
+            content = response.choices[0].message.content
+            if not content:
+                return {"error": "Qwen returned an empty reasoning response."}
+            parsed = json.loads(content)
+            if not isinstance(parsed, dict):
+                return {"error": "Qwen returned a non-object reasoning response."}
+            return parsed
+        except Exception as exc:
+            logger.exception('[Received PO AI] Qwen reasoning failed')
+            return {"error": str(exc)}
 
 ai_service = AIService()
 
@@ -774,7 +835,6 @@ def _resolve_image_url_for_po(image_url: str) -> str:
     # For localhost/127.0.0.1 URLs without /static/ prefix, try an HTTP fetch
     if parsed.hostname in {'localhost', '127.0.0.1'}:
         try:
-            from urllib.request import urlopen, Request as UrlRequest
             req = UrlRequest(url, headers={'User-Agent': 'kira-po-extractor/1.0'})
             with urlopen(req, timeout=8) as resp:
                 raw = resp.read()
@@ -848,7 +908,7 @@ def process_po_ai_extraction_job(po_request_id: str):
                     len(item.extracted_attributes.get('fields', {})),
                     product.id,
                 )
-            except Exception as item_err:
+            except Exception:
                 logger.exception('[PO Extraction] Error extracting product %s', product.id)
                 item.extracted_attributes = normalize_ai_attributes(None)
 
@@ -856,7 +916,7 @@ def process_po_ai_extraction_job(po_request_id: str):
         po_request.status = 'ready' if extracted_item_count > 0 else 'failed'
         db.commit()
         logger.info('[PO Extraction] Done. PO %s marked %s.', po_request_id, po_request.status)
-    except Exception as e:
+    except Exception:
         logger.exception('[PO Extraction] Fatal error for PO %s', po_request_id)
         if po_request:
             po_request.status = 'failed'
