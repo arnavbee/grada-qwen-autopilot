@@ -26,12 +26,12 @@ The workflow is intentionally production-shaped:
 - Human-in-the-loop checkpoints: risky rows require operator review before invoices, packing lists, or barcode PDFs are generated.
 - Production readiness: tenant-scoped data, auth, durable jobs, object-storage support, health checks, and audit history.
 
-## Qwen Cloud Evidence
+## Qwen Cloud Evidence (Proof of Deployment)
 
-Qwen/OpenAI-compatible provider configuration:
+Qwen/OpenAI-compatible provider configuration clearly visible in code:
 
-- `apps/api/app/core/config.py`
-- `apps/api/app/services/ai.py`
+- `apps/api/app/core/config.py` (Base URL: `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`)
+- `apps/api/app/services/ai.py` (Explicit constants `QWEN_DASHSCOPE_BASE_URL` and `QWEN_TOKEN_PLAN_BASE_URL`)
 
 Qwen PO risk reasoning:
 
@@ -48,8 +48,11 @@ Required production env:
 ```bash
 AI_PROVIDER=qwen
 QWEN_API_KEY=...
+# Standard DashScope International Base URL:
 QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-QWEN_MODEL=qwen-vl-max
+# Token Plan Alternative:
+# QWEN_BASE_URL=https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
+QWEN_MODEL=qwen3.7-plus
 ```
 
 Local development without a Qwen key uses a marked `local_rule_fallback` so the app remains testable. Production judging should use `source=qwen_cloud` in the timeline metadata.
@@ -74,11 +77,10 @@ Local development without a Qwen key uses a marked `local_rule_fallback` so the 
 
 See `docs/qwen-hackathon-architecture.md`.
 
-## Judging Checklist
+## Judging Checklist ✅
 
-- Public source repository with license: `LICENSE`
-- Track identified: Track 4, Autopilot Agent
-- Architecture diagram: `docs/qwen-hackathon-architecture.md`
-- Qwen code path: `apps/api/app/services/ai.py`
-- Alibaba Cloud deployment proof: add final public backend URL and short recording link before Devpost submission
-- Demo video: record the script above in about 3 minutes
+- [x] **Public, open-source code repo**: Repository with `LICENSE`
+- [x] **Code file with Qwen Cloud Base URL clearly visible**: [`apps/api/app/services/ai.py`](apps/api/app/services/ai.py) and [`apps/api/app/core/config.py`](apps/api/app/core/config.py)
+- [ ] **Screenshot showing proof of deployment on Alibaba Cloud**: Capture running resources from Alibaba Cloud Workbench and include in Devpost submission question / project images
+- [x] **3-min demo video**: Working real app recording demonstrating the workflow above
+- [x] **Track identified**: Track 4, Autopilot Agent

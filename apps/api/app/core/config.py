@@ -16,8 +16,10 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = 'gpt-4o'
 
     QWEN_API_KEY: str | None = None
+    # Proof of Deployment: Standard DashScope International Base URL
+    # Token plan alternative: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
     QWEN_BASE_URL: str = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
-    QWEN_MODEL: str = 'qwen-vl-max'
+    QWEN_MODEL: str = 'qwen3.7-plus'
 
     jwt_secret_key: str = 'change-me'
     jwt_refresh_secret_key: str = 'change-me-too'

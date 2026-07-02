@@ -351,7 +351,8 @@ def process_received_po_parse_job(received_po_id: str) -> None:
         if record is None:
             return
 
-        record.status = 'parsing'
+        if record.status in {'uploaded', 'failed'}:
+            record.status = 'parsing'
         log_received_po_agent_event(
             db,
             record,
@@ -412,6 +413,28 @@ def process_received_po_parse_job(received_po_id: str) -> None:
         db.refresh(record)
         exception_summary = run_exception_resolution_for_received_po(db, record)
 
+        from app.services.catalog_cross_reference import cross_reference_catalog
+
+        catalog_summary = cross_reference_catalog(db, record)
+        parsed_payload['catalog_cross_reference'] = catalog_summary
+        log_received_po_agent_event(
+            db,
+            record,
+            event_type='agent.catalog_cross_reference_completed',
+            title='Catalog cross-reference tool completed',
+            summary=(
+                f"Cross-referenced {catalog_summary['summary']['total_items']} line item(s) against catalog: "
+                f"matched {catalog_summary['summary']['matched']} ({catalog_summary['summary']['match_rate']}%), "
+                f"found {catalog_summary['summary']['price_discrepancies']} pricing discrepancy(ies)."
+            ),
+            status=STATUS_NEEDS_REVIEW if catalog_summary['status'] == 'warning' else 'completed',
+            tool_name='catalog_cross_reference',
+            metadata={
+                'summary': catalog_summary['summary'],
+                'size_distribution': catalog_summary['size_distribution'],
+            },
+        )
+
         po_date_value = parsed_payload.get('po_date')
         parsed_po_date = None
         if isinstance(po_date_value, str) and po_date_value.strip():
@@ -423,7 +446,7 @@ def process_received_po_parse_job(received_po_id: str) -> None:
         record.po_number = str(parsed_payload.get('po_number') or '').strip() or record.po_number
         record.po_date = parsed_po_date or record.po_date
         record.distributor = str(parsed_payload.get('distributor') or '').strip() or record.distributor
-        qwen_reasoning = reason_about_received_po(record, exception_summary)
+        qwen_reasoning = reason_about_received_po(record, exception_summary, catalog_summary=catalog_summary, db=db)
         parsed_payload['qwen_reasoning'] = qwen_reasoning
         log_received_po_agent_event(
             db,
@@ -450,7 +473,11 @@ def process_received_po_parse_job(received_po_id: str) -> None:
         )
         record.raw_extracted_json = _json_dumps(parsed_payload)
         record.updated_at = utcnow()
-        record.status = 'parsed'
+        latest_status = db.query(ReceivedPO.status).filter(ReceivedPO.id == record.id).scalar()
+        if latest_status in {'uploaded', 'parsing', 'failed', None}:
+            record.status = 'parsed'
+        else:
+            record.status = latest_status
         log_received_po_agent_event(
             db,
             record,
@@ -474,7 +501,11 @@ def process_received_po_parse_job(received_po_id: str) -> None:
         db.commit()
     except Exception as exc:
         if record is not None:
-            record.status = 'failed'
+            latest_status = db.query(ReceivedPO.status).filter(ReceivedPO.id == record.id).scalar()
+            if latest_status in {'uploaded', 'parsing', 'failed', None}:
+                record.status = 'failed'
+            else:
+                record.status = latest_status
             record.raw_extracted_json = _json_dumps({'parse_error': str(exc)[:500]})
             log_received_po_agent_event(
                 db,

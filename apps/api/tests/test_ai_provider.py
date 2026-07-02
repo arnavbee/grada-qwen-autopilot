@@ -15,7 +15,7 @@ def test_qwen_provider_uses_qwen_cloud_compatible_settings(monkeypatch) -> None:
             OPENAI_MODEL='gpt-4o',
             QWEN_API_KEY='qwen-key',
             QWEN_BASE_URL='https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-            QWEN_MODEL='qwen-vl-max',
+            QWEN_MODEL='qwen3.7-plus',
         ),
     )
 
@@ -25,7 +25,7 @@ def test_qwen_provider_uses_qwen_cloud_compatible_settings(monkeypatch) -> None:
         'provider': 'qwen',
         'api_key': 'qwen-key',
         'base_url': 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-        'model': 'qwen-vl-max',
+        'model': 'qwen3.7-plus',
     }
 
 
@@ -41,7 +41,7 @@ def test_openrouter_key_keeps_existing_base_url_behavior(monkeypatch) -> None:
             OPENAI_MODEL='gpt-4o',
             QWEN_API_KEY=None,
             QWEN_BASE_URL='https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-            QWEN_MODEL='qwen-vl-max',
+            QWEN_MODEL='qwen3.7-plus',
         ),
     )
 

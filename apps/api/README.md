@@ -41,7 +41,7 @@ Most important settings:
 AI_PROVIDER=qwen
 QWEN_API_KEY=...
 QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-QWEN_MODEL=qwen-vl-max
+QWEN_MODEL=qwen3.7-plus
 DATABASE_URL=sqlite:///./kira.db
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 JWT_SECRET_KEY=change-me

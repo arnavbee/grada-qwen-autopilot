@@ -8,28 +8,32 @@ It automates a real wholesale operations workflow: ingest a buyer purchase order
 
 ```mermaid
 flowchart LR
-  user["Wholesale operator"] --> web["Next.js dashboard"]
-  web --> api["FastAPI backend on Alibaba Cloud"]
+  user["Wholesale Operator"] --> web["Next.js Dashboard"]
+  web --> api["FastAPI Backend on Alibaba Cloud"]
 
-  api --> qwen["Qwen Cloud model API\nOpenAI-compatible endpoint"]
-  api --> db["Postgres or SQLite\nTenant data, agent events, documents"]
-  api --> storage["Object storage\nUploaded POs and generated PDFs"]
-  api --> worker["Durable job worker"]
+  api --> qwen["Qwen Cloud (qwen3.7-plus)\nOpenAI-Compatible Function Calling"]
+  api --> db["PostgreSQL / SQLite\nTenant Data, Timeline, AICorrections"]
+  api --> storage["Object Storage\nUploaded POs & Generated PDFs"]
 
-  worker --> parser["PO parser tool\nPDF/XLS/XLSX extraction"]
-  worker --> qwenReasoner["Qwen PO risk reasoner\ncritical checks + next action"]
-  worker --> resolver["Exception resolver tool\nconfidence + suggested fixes"]
-  worker --> docs["Document tools\nbarcode, invoice, packing list"]
+  subgraph AutopilotLoop["Multi-Step Qwen Tool Orchestration Loop"]
+    qwen <--> toolLoop["Function Calling Executor"]
+    toolLoop --> t1["check_pricing\nCompare against catalog MRP"]
+    toolLoop --> t2["check_catalog_match\nValidate SKUs & style codes"]
+    toolLoop --> t3["check_quantity_reasonableness\nSize distribution & anomalies"]
+    toolLoop --> t4["suggest_resolution\nFormulate historical AI fixes"]
+  end
 
-  parser --> db
-  qwenReasoner --> qwen
-  qwenReasoner --> db
-  resolver --> db
-  docs --> storage
-  docs --> db
-
-  db --> timeline["Autopilot timeline\nagent actions + human checkpoints"]
+  api --> AutopilotLoop
+  AutopilotLoop --> timeline["Autopilot Timeline\nReal-time audit log of tool actions"]
   timeline --> web
+
+  subgraph HumanLoop["Human-in-the-Loop & Learning"]
+    userReview["Operator Exception Review"] -->|Accept/Edit| lineItem["Update PO Line Items"]
+    lineItem -->|Human Correction| aiLearn["AICorrection Signal\nStore training data for future orders"]
+    aiLearn --> db
+  end
+
+  web --> userReview
 ```
 
 ## Agent Flow
@@ -66,7 +70,7 @@ flowchart LR
 AI_PROVIDER=qwen
 QWEN_API_KEY=...
 QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-QWEN_MODEL=qwen-vl-max
+QWEN_MODEL=qwen3.7-plus
 ```
 
 ## Alibaba Cloud Deployment Proof

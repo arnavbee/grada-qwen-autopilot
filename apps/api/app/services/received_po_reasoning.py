@@ -1,8 +1,11 @@
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from app.core.config import get_settings
 from app.models.received_po import ReceivedPO
 from app.services.ai import ai_service
+from app.services.received_po_agent import log_received_po_agent_event
 
 MAX_REASONING_ROWS = 30
 
@@ -39,39 +42,65 @@ def _po_snapshot(record: ReceivedPO) -> dict[str, Any]:
     }
 
 
-def _fallback_reasoning(exception_summary: dict[str, Any]) -> dict[str, Any]:
+def _fallback_reasoning(
+    exception_summary: dict[str, Any], catalog_summary: dict[str, Any] | None = None
+) -> dict[str, Any]:
     needs_review = int(exception_summary.get('needs_review') or 0)
     total = int(exception_summary.get('total') or 0)
     auto_resolve_rate = float(exception_summary.get('auto_resolve_rate') or 0)
-    if needs_review > 0:
-        return {
-            'overall_risk': 'medium',
-            'confidence': 0.76,
-            'decision': 'needs_human_review',
-            'critical_checks': [
-                {
-                    'check': 'line_item_exceptions',
-                    'status': 'warning',
-                    'reason': f'{needs_review} of {total} line item(s) need review before dispatch documents.',
-                }
-            ],
-            'review_questions': ['Resolve flagged quantities, prices, SKUs, sizes, and construction values before confirmation.'],
-            'suggested_next_action': 'Open the exception inbox and resolve the flagged rows.',
-        }
 
-    return {
-        'overall_risk': 'low',
-        'confidence': 0.84,
-        'decision': 'auto_continue',
-        'critical_checks': [
+    checks = []
+    questions = []
+    overall_risk = 'low'
+    decision = 'auto_continue'
+    confidence = 0.84
+
+    if needs_review > 0:
+        overall_risk = 'medium'
+        decision = 'needs_human_review'
+        confidence = 0.76
+        checks.append(
+            {
+                'check': 'line_item_exceptions',
+                'status': 'warning',
+                'reason': f'{needs_review} of {total} line item(s) need review before dispatch documents.',
+            }
+        )
+        questions.append('Resolve flagged quantities, prices, SKUs, sizes, and construction values before confirmation.')
+    else:
+        checks.append(
             {
                 'check': 'line_item_exceptions',
                 'status': 'pass',
                 'reason': f'All {total} line item(s) passed deterministic checks with {auto_resolve_rate:.0f}% auto-resolution.',
             }
-        ],
-        'review_questions': [],
-        'suggested_next_action': 'Proceed to human confirmation and downstream document generation.',
+        )
+
+    if catalog_summary:
+        price_disc = catalog_summary['summary'].get('price_discrepancies', 0)
+        match_rate = catalog_summary['summary'].get('match_rate', 100)
+        cat_status = catalog_summary.get('status', 'pass')
+        checks.append(
+            {
+                'check': 'catalog_cross_reference',
+                'status': cat_status,
+                'reason': f"Catalog match rate {match_rate}% with {price_disc} pricing discrepancy(ies).",
+            }
+        )
+        if cat_status == 'warning' or price_disc > 0:
+            overall_risk = 'high' if needs_review > 0 else 'medium'
+            decision = 'needs_human_review'
+            questions.append(f'Verify {price_disc} line item(s) with price discrepancies against agreement terms.')
+
+    time_saved = max(15, total * 3)
+    return {
+        'overall_risk': overall_risk,
+        'confidence': confidence,
+        'decision': decision,
+        'critical_checks': checks,
+        'review_questions': questions,
+        'suggested_next_action': 'Open the exception inbox and resolve flagged rows.' if decision == 'needs_human_review' else 'Proceed to human confirmation and downstream document generation.',
+        'what_would_happen_without_me': f"Without Grada Autopilot, an operations coordinator would manually cross-reference {total} order lines against ERP product master tables and historical pricing agreements, consuming approximately {time_saved} minutes of manual review and risking dispatch delays.",
     }
 
 
@@ -88,6 +117,11 @@ def _normalize_reasoning(raw_reasoning: dict[str, Any], *, source: str, provider
 
     checks = raw_reasoning.get('critical_checks')
     questions = raw_reasoning.get('review_questions')
+    impact = raw_reasoning.get('what_would_happen_without_me')
+    if not impact:
+        total = len(checks) * 10 or 20
+        impact = f"Without Autopilot, human coordinators would spend ~{total * 3} minutes manually cross-referencing order rows and pricing."
+
     return {
         'source': source,
         'provider': provider,
@@ -98,27 +132,54 @@ def _normalize_reasoning(raw_reasoning: dict[str, Any], *, source: str, provider
         'critical_checks': checks if isinstance(checks, list) else [],
         'review_questions': questions if isinstance(questions, list) else [],
         'suggested_next_action': str(raw_reasoning.get('suggested_next_action') or '').strip(),
+        'what_would_happen_without_me': str(impact).strip(),
     }
 
 
-def reason_about_received_po(record: ReceivedPO, exception_summary: dict[str, Any]) -> dict[str, Any]:
+def reason_about_received_po(
+    record: ReceivedPO,
+    exception_summary: dict[str, Any],
+    *,
+    catalog_summary: dict[str, Any] | None = None,
+    db: Session | None = None,
+) -> dict[str, Any]:
     settings = get_settings()
     provider = str(settings.ai_provider or '').strip().lower()
     model = settings.ai_model or settings.QWEN_MODEL
+
+    def _on_tool_invoked(tool_name: str, summary: str, metadata: dict[str, Any] | None = None) -> None:
+        if db is not None and record is not None:
+            log_received_po_agent_event(
+                db,
+                record,
+                event_type=f'agent.tool.{tool_name}',
+                title=f'Agent tool: {tool_name}',
+                summary=summary,
+                tool_name=tool_name,
+                metadata=metadata or {},
+            )
 
     if provider == 'qwen' and settings.QWEN_API_KEY:
         raw_reasoning = ai_service.assess_received_po_autopilot(
             po_snapshot=_po_snapshot(record),
             exception_summary=exception_summary,
+            catalog_summary=catalog_summary,
+            on_tool_invoked=_on_tool_invoked,
         )
         if 'error' not in raw_reasoning:
             return _normalize_reasoning(raw_reasoning, source='qwen_cloud', provider=provider, model=model)
-        fallback = _fallback_reasoning(exception_summary)
+        fallback = _fallback_reasoning(exception_summary, catalog_summary=catalog_summary)
         fallback['qwen_error'] = str(raw_reasoning.get('error') or '')[:300]
         return _normalize_reasoning(fallback, source='qwen_error_fallback', provider=provider, model=model)
 
+    from app.services.ai import _execute_autopilot_tool
+    po_snap = _po_snapshot(record)
+    for tool_name in ['check_pricing', 'check_catalog_match', 'check_quantity_reasonableness', 'suggest_resolution']:
+        tool_out = _execute_autopilot_tool(tool_name, po_snap, exception_summary, catalog_summary)
+        _on_tool_invoked(tool_name, tool_out.get('summary', f'Executed {tool_name}'), tool_out)
+
     return _normalize_reasoning(
-        _fallback_reasoning(exception_summary),
+        _fallback_reasoning(exception_summary, catalog_summary=catalog_summary),
         source='local_rule_fallback',
         provider=provider or 'not_configured',
         model=model,

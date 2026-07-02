@@ -1227,6 +1227,23 @@ def resolve_received_po_exception(
     if line_item.confidence_score is None:
         line_item.confidence_score = 0.5
 
+    if payload.action != 'accept':
+        from uuid import uuid4
+        from app.models.ai_correction import AICorrection
+        db.add(
+            AICorrection(
+                id=str(uuid4()),
+                company_id=current_user.company_id,
+                field_name='po_line_item',
+                feedback_type='correction',
+                suggested_value=str(payload.action),
+                corrected_value=f"SKU: {line_item.sku_id}, Price: {line_item.po_price}, Qty: {line_item.quantity}",
+                reason_code='human_po_exception_correction',
+                source='received_po_inbox',
+                created_by_user_id=current_user.id,
+            )
+        )
+
     run_exception_resolution_for_received_po(db, record)
     log_received_po_agent_event(
         db,

@@ -12,14 +12,16 @@ From catalog to PO to final documents, Grada keeps your team faster, more accura
 ### 🔗 Required Judging Links & Proofs
 
 1. **Alibaba Cloud & Qwen API Proof (Code File):**
-   - [`apps/api/app/services/ai.py`](apps/api/app/services/ai.py) — Demonstrates direct API integration with Alibaba Cloud DashScope (`dashscope-intl.aliyuncs.com`) using `qwen-vl-max`.
+   - [`apps/api/app/services/ai.py`](apps/api/app/services/ai.py) — Demonstrates direct API integration with Qwen Cloud using Base URL `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` (explicitly defined at the top of the file) and `qwen3.7-plus`.
+   - [`apps/api/app/core/config.py`](apps/api/app/core/config.py) — Contains the runtime setting `QWEN_BASE_URL: str = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'` along with Token Plan configuration options.
    - [`apps/api/app/services/received_po_reasoning.py`](apps/api/app/services/received_po_reasoning.py) — Demonstrates Qwen-powered structured risk reasoning over parsed PO rows.
-2. **System Architecture Diagram:**
+2. **Visual Evidence (Alibaba Cloud Workbench Screenshot):**
+   - Attached directly to our Devpost submission question answering the updated **Proof of Deployment on Alibaba Cloud** requirement showing running resources on Alibaba Cloud Workbench.
+3. **System Architecture & Documentation:**
    - Detailed Documentation: [`docs/qwen-hackathon-architecture.md`](docs/qwen-hackathon-architecture.md)
    - Comprehensive Hackathon Guide: [`HACKATHON.md`](HACKATHON.md)
-3. **Video Recordings (To Be Added by Team on Devpost):**
-   - **3-Minute Functional Demo Video:** Demonstrating upload, Qwen vision extraction, Autopilot timeline, human-in-the-loop exception resolution, and 1-click dispatch document generation.
-   - **Alibaba Cloud Deployment Proof Recording:** A separate short recording proving the FastAPI backend server running on Alibaba Cloud infrastructure.
+4. **Video Recordings:**
+   - **3-Minute Functional Demo Video:** Real working app demonstrating upload, Qwen vision extraction, Autopilot timeline, human-in-the-loop exception resolution, and 1-click dispatch document generation.
 
 ### 🏛️ System Architecture Diagram
 
@@ -112,7 +114,7 @@ NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 AI_PROVIDER=qwen
 QWEN_API_KEY=your_key_here
 QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-QWEN_MODEL=qwen-vl-max
+QWEN_MODEL=qwen3.7-plus
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
 
