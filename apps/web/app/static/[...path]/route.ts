@@ -16,14 +16,7 @@ function getApiOriginUrl(): string | null {
   const configuredBase =
     process.env.API_PROXY_TARGET?.trim() || process.env.NEXT_PUBLIC_API_URL?.trim();
   if (configuredBase) {
-    if (process.env.NODE_ENV === "production" && LOOPBACK_HOST_REGEX.test(configuredBase)) {
-      return null;
-    }
     return normalizeApiOrigin(configuredBase);
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    return null;
   }
 
   return normalizeApiOrigin(LOCAL_API_ORIGIN);

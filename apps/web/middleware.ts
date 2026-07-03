@@ -74,9 +74,6 @@ function isAuthPath(pathname: string): boolean {
 function buildApiBaseUrl(request: NextRequest): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
   if (configured) {
-    if (process.env.NODE_ENV === "production" && LOOPBACK_HOST_REGEX.test(configured)) {
-      return `${request.nextUrl.origin}/api/v1`;
-    }
     return configured.endsWith("/api/v1") ? configured : `${configured.replace(/\/+$/, "")}/api/v1`;
   }
   return `${request.nextUrl.origin}/api/v1`;

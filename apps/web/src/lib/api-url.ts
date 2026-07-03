@@ -1,21 +1,18 @@
-const LOCAL_API_ORIGIN = 'http://127.0.0.1:8000';
+const LOCAL_API_ORIGIN = "http://127.0.0.1:8000";
 const LOOPBACK_HOST_REGEX = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i;
 
 function normalizeApiBaseUrl(rawBase: string): string {
-  const trimmed = rawBase.trim().replace(/\/+$/, '');
-  return trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`;
+  const trimmed = rawBase.trim().replace(/\/+$/, "");
+  return trimmed.endsWith("/api/v1") ? trimmed : `${trimmed}/api/v1`;
 }
 
 export function getResolvedApiBaseUrl(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
   if (configured) {
-    if (process.env.NODE_ENV === 'production' && LOOPBACK_HOST_REGEX.test(configured) && typeof window !== 'undefined') {
-      return normalizeApiBaseUrl(window.location.origin);
-    }
     return normalizeApiBaseUrl(configured);
   }
 
-  if (typeof window !== 'undefined' && window.location?.origin) {
+  if (typeof window !== "undefined" && window.location?.origin) {
     return normalizeApiBaseUrl(window.location.origin);
   }
 
@@ -23,5 +20,5 @@ export function getResolvedApiBaseUrl(): string {
 }
 
 export function getResolvedApiOriginUrl(): string {
-  return getResolvedApiBaseUrl().replace(/\/api\/v1$/, '');
+  return getResolvedApiBaseUrl().replace(/\/api\/v1$/, "");
 }
