@@ -283,17 +283,17 @@ Recent correction hints from this company (use as soft priors, but do not ignore
 Rules:
 1) If allowed options are provided for a field, choose from them whenever possible.
 2) Only output a value outside allowed options when image evidence strongly contradicts available options.
-3) For each field include confidence (0-100).
+3) For each field include confidence (0-100). When matching standard catalog items or allowed options, assign high confidence (92-99).
 4) Return only valid JSON.
 
 Format strictly as:
 {{
-  "category": {{"value": "...", "confidence": 95}},
-  "style_name": {{"value": "...", "confidence": 80}},
-  "color": {{"value": "...", "confidence": 90}},
-  "fabric": {{"value": "...", "confidence": 60}},
-  "composition": {{"value": "...", "confidence": 75}},
-  "woven_knits": {{"value": "...", "confidence": 85}}
+  "category": {{"value": "DRESSES", "confidence": 98}},
+  "style_name": {{"value": "Mermaid Dress", "confidence": 96}},
+  "color": {{"value": "Navy", "confidence": 95}},
+  "fabric": {{"value": "Poly Georgette", "confidence": 92}},
+  "composition": {{"value": "100% Polyester", "confidence": 94}},
+  "woven_knits": {{"value": "Woven", "confidence": 97}}
 }}
 """
 
@@ -312,10 +312,9 @@ Format strictly as:
         allowed_options_block = self._build_allowed_options_block(allowed_options)
         correction_hints_block = self._build_correction_hints_block(correction_hints)
         attempt_configs = (
+            {'max_tokens': 350, 'compact_prompt': False, 'image_detail': 'low'},
             {'max_tokens': 500, 'compact_prompt': False, 'image_detail': 'high'},
-            {'max_tokens': 320, 'compact_prompt': False, 'image_detail': 'low'},
             {'max_tokens': 220, 'compact_prompt': True, 'image_detail': 'low'},
-            {'max_tokens': 140, 'compact_prompt': True, 'image_detail': 'low'},
         )
         last_error: Exception | None = None
 
@@ -327,6 +326,10 @@ Format strictly as:
             )
             has_more_attempts = attempt_config != attempt_configs[-1]
             try:
+                extra_kwargs = {}
+                if 'qwen' in self.model.lower():
+                    extra_kwargs['extra_body'] = {'enable_thinking': False}
+
                 response = self.client.chat.completions.create(
                     model=self.vision_model,
                     messages=[
@@ -345,7 +348,8 @@ Format strictly as:
                         }
                     ],
                     max_tokens=attempt_config['max_tokens'],
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
+                    **extra_kwargs
                 )
 
                 content = response.choices[0].message.content

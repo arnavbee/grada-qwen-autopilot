@@ -2354,6 +2354,43 @@ export function CatalogView(): JSX.Element {
     }));
   }
 
+  function ensureUniqueUploadSkus(): void {
+    const seen = new Set<string>(catalogRows.map((r) => r.styleNo.trim().toUpperCase()));
+    setUploadItems((items) =>
+      items.map((item) => {
+        if (!item.analysis) return item;
+        let candidate = item.analysis.styleNo.trim().toUpperCase() || "STYLE";
+        if (!seen.has(candidate)) {
+          seen.add(candidate);
+          return item;
+        }
+        const match = candidate.match(/^(.+?)(\d+)$/);
+        if (match) {
+          const prefix = match[1];
+          let num = parseInt(match[2], 10) + 1;
+          const padLen = match[2].length;
+          while (true) {
+            const nextCandidate = `${prefix}${String(num).padStart(padLen, "0")}`;
+            if (!seen.has(nextCandidate)) {
+              seen.add(nextCandidate);
+              return { ...item, analysis: { ...item.analysis, styleNo: nextCandidate } };
+            }
+            num++;
+          }
+        }
+        let suffix = 1;
+        while (true) {
+          const nextCandidate = `${candidate}-${String(suffix).padStart(2, "0")}`;
+          if (!seen.has(nextCandidate)) {
+            seen.add(nextCandidate);
+            return { ...item, analysis: { ...item.analysis, styleNo: nextCandidate } };
+          }
+          suffix++;
+        }
+      }),
+    );
+  }
+
   async function prepareItemsForReview(): Promise<void> {
     const pendingItems = uploadItems.filter(
       (item) => !item.analysis && item.status !== "failed" && item.status !== "completed",
@@ -2361,6 +2398,7 @@ export function CatalogView(): JSX.Element {
     for (const item of pendingItems) {
       await ensureManualDraftForItem(item.id);
     }
+    ensureUniqueUploadSkus();
   }
 
   async function handleAnalyzeItemWithAi(itemId: string): Promise<void> {
@@ -2585,6 +2623,7 @@ export function CatalogView(): JSX.Element {
     let successCount = 0;
     let failedCount = 0;
     const approvalCache = new Map<string, boolean>();
+    const seenBatchSkus = new Set<string>(catalogRows.map((r) => r.styleNo.trim().toUpperCase()));
 
     try {
       for (const item of candidates) {
@@ -2637,11 +2676,41 @@ export function CatalogView(): JSX.Element {
           continue;
         }
         try {
+          let candidateSku = item.analysis.styleNo.trim().toUpperCase() || "STYLE";
+          if (seenBatchSkus.has(candidateSku)) {
+            const match = candidateSku.match(/^(.+?)(\d+)$/);
+            if (match) {
+              const prefix = match[1];
+              let num = parseInt(match[2], 10) + 1;
+              const padLen = match[2].length;
+              while (true) {
+                const next = `${prefix}${String(num).padStart(padLen, "0")}`;
+                if (!seenBatchSkus.has(next)) {
+                  candidateSku = next;
+                  break;
+                }
+                num++;
+              }
+            } else {
+              let suffix = 1;
+              while (true) {
+                const next = `${candidateSku}-${String(suffix).padStart(2, "0")}`;
+                if (!seenBatchSkus.has(next)) {
+                  candidateSku = next;
+                  break;
+                }
+                suffix++;
+              }
+            }
+          }
+          seenBatchSkus.add(candidateSku);
+
           updateUploadItem(item.id, (current) => ({
             ...current,
             status: "uploading",
             progress: 30,
             error: undefined,
+            analysis: current.analysis ? { ...current.analysis, styleNo: candidateSku } : undefined,
           }));
 
           const uploadedImage = await uploadCatalogImage(item.file);
@@ -2650,7 +2719,7 @@ export function CatalogView(): JSX.Element {
           const created = await apiRequest<ProductResponse>("/catalog/products", {
             method: "POST",
             body: JSON.stringify({
-              sku: item.analysis.styleNo.trim().toUpperCase(),
+              sku: candidateSku,
               title: item.analysis.styleName,
               category: item.analysis.category,
               color: item.analysis.color,
@@ -3644,6 +3713,25 @@ export function CatalogView(): JSX.Element {
         typeof defaults.ospSar === "string" && defaults.ospSar ? defaults.ospSar : OSP_OPTIONS[1],
       );
     }
+
+    const targetCategory =
+      rememberLastValues && localStorage.getItem("kira_last_item_values")
+        ? (() => {
+            try {
+              return (
+                JSON.parse(localStorage.getItem("kira_last_item_values") || "{}").category ||
+                CATEGORY_OPTIONS[0]
+              );
+            } catch {
+              return CATEGORY_OPTIONS[0];
+            }
+          })()
+        : typeof activeTemplate?.defaults?.category === "string" && activeTemplate.defaults.category
+          ? activeTemplate.defaults.category
+          : CATEGORY_OPTIONS[0];
+    generateBulkStyleCode(targetCategory).then((code) => {
+      setItemStyleNo(code);
+    });
 
     setIsAddModalOpen(true);
   }
@@ -6890,7 +6978,13 @@ export function CatalogView(): JSX.Element {
                       </FieldLabel>
                       <select
                         className="kira-focus-ring w-full border-0 border-b border-kira-warmgray/70 dark:border-white/20 bg-transparent px-0 pb-2 pt-1 text-xl text-kira-black dark:text-white dark:bg-[#12141B] outline-none"
-                        onChange={(event) => setItemCategory(event.target.value)}
+                        onChange={(event) => {
+                          const newCat = event.target.value;
+                          setItemCategory(newCat);
+                          if (!editingRowId) {
+                            generateBulkStyleCode(newCat).then((code) => setItemStyleNo(code));
+                          }
+                        }}
                         value={itemCategory}
                       >
                         {addItemCategoryOptions.map((option) => (

@@ -1420,7 +1420,11 @@ def create_product(payload: ProductCreateRequest, db: DbSession, current_user: W
             .first()
         )
         if existing is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='SKU already exists.')
+            match = re.match(r'^([A-Z]+[0-9]{2})(\d+)$', sku)
+            if match:
+                sku = _find_formatted_unique_sku(db, current_user.company_id, match.group(1))
+            else:
+                sku = _find_unique_sku(db, current_user.company_id, sku)
     else:
         sku = _generate_sku(db, current_user.company_id, company_settings, payload)
 
