@@ -14,14 +14,7 @@ function getApiBaseUrl(): string | null {
   const configuredBase =
     process.env.API_PROXY_TARGET?.trim() || process.env.NEXT_PUBLIC_API_URL?.trim();
   if (configuredBase) {
-    if (process.env.NODE_ENV === "production" && LOOPBACK_HOST_REGEX.test(configuredBase)) {
-      return null;
-    }
     return normalizeApiBase(configuredBase);
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    return null;
   }
 
   return normalizeApiBase(LOCAL_API_BASE);
