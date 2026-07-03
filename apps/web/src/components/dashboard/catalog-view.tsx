@@ -2366,9 +2366,10 @@ export function CatalogView(): JSX.Element {
         }
         const match = candidate.match(/^(.+?)(\d+)$/);
         if (match) {
-          const prefix = match[1];
-          let num = parseInt(match[2], 10) + 1;
-          const padLen = match[2].length;
+          const prefix = match[1] ?? "";
+          const digitsStr = match[2] ?? "0";
+          let num = parseInt(digitsStr, 10) + 1;
+          const padLen = digitsStr.length;
           while (true) {
             const nextCandidate = `${prefix}${String(num).padStart(padLen, "0")}`;
             if (!seen.has(nextCandidate)) {
@@ -2680,9 +2681,10 @@ export function CatalogView(): JSX.Element {
           if (seenBatchSkus.has(candidateSku)) {
             const match = candidateSku.match(/^(.+?)(\d+)$/);
             if (match) {
-              const prefix = match[1];
-              let num = parseInt(match[2], 10) + 1;
-              const padLen = match[2].length;
+              const prefix = match[1] ?? "";
+              const digitsStr = match[2] ?? "0";
+              let num = parseInt(digitsStr, 10) + 1;
+              const padLen = digitsStr.length;
               while (true) {
                 const next = `${prefix}${String(num).padStart(padLen, "0")}`;
                 if (!seenBatchSkus.has(next)) {

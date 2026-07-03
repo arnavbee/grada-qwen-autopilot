@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     password_reset_token_expires_minutes: int = 30
     session_timeout_hours: int = 24
 
-    frontend_origins: str = 'http://localhost:3000,http://127.0.0.1:3000'
+    frontend_origins: str = 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002,http://localhost:5003,http://127.0.0.1:5003'
     super_admin_emails: str = ''
 
     # Optional S3-compatible object storage (Cloudflare R2, S3, MinIO, etc.)
